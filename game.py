@@ -27,8 +27,9 @@ class Game(object):
 		self.turn = -1
 
 		self.generate_initial_cards()
-		self.gems = {color:COLOR_STOCKPILE_AMOUNT - (4-self.n_players) for color in COLOR_ORDER}
-		self.gems['gold'] = GOLD_STOCKPILE_AMOUNT
+		#self.gems = {color:COLOR_STOCKPILE_AMOUNT - (4-self.n_players) for color in COLOR_ORDER}
+		#self.gems['gold'] = GOLD_STOCKPILE_AMOUNT
+		self.gems = GEMS_PILE - (4-self.n_players) * EACH_COLOR
 		self.last_turn = False
 
 	#TODO: add methods to append 
