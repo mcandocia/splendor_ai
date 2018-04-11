@@ -68,16 +68,29 @@ class ColorCombination(object):
 	def as_dict(self):
 		return {color:self[color] for color in self.possible_colors}
 
+	def count(self):
+		return sum([getattr(x, color) for x in self.possible_colors])
+
+	def count_nonnegative(self):
+		return sum([getattr(x, color) for x in self.possible_colors  if getattr(x, color) >= 0])
+
+	def truncate_negatives(self):
+		colors = {color:max(0, getattr(self, color)) for color in self.possible_colors}
+		return ColorCombinations(self.uses_gold, **colors)
+
 	def __copy__(self):
 		colors = {color:getattr(self, color) for color in self.possible_colors}
 		return ColorCombination(self.uses_gold, **colors)
+
+	def __deepcopy__(self, *args):
+		return self.__copy__()
 
 	def can_pay_for(self, c2):
 		difference = c2 - self
 		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
 		return self.gold >= net_shortfall
 
-	def perform_payment(self, c2):
+	def make_payment(self, c2):
 		"""
 		calculates difference, but will take out gold when needed
 		this should be done after can_pay_for() checks that it's okay
@@ -100,9 +113,11 @@ class ColorCombination(object):
 # a small test case
 # v = ColorCombination(True, gold=3, red=1)
 # v2 = ColorCombination(red=2, black=1)
-# print(v.perform_payment(v2))
+# print(v.make_payment(v2))
 
 EACH_COLOR = ColorCombination(True, **{color:1 for color in COST_COLOR_ORDER})
+
+ONE_GOLD = ColorCombination(True, gold=1)
 
 CARD_CSV_FILENAME = 'card_data.csv' # '/ntfsl/workspace/splendor_ai/card_data.csv'
 
