@@ -36,8 +36,15 @@ class ColorCombination(object):
 
 	def __sub__(self, c2):
 		colors = {}
-		for color in self.possible_colors:
-			colors[color] = getattr(self, color) - getattr(c2, color)
+		if c2.uses_gold:
+			for color in self.possible_colors:
+				colors[color] = getattr(self, color) - getattr(c2, color)
+		else:
+			for color in COST_COLOR_ORDER:
+				colors[color] = getattr(self, color) - getattr(c2, color)
+			if self.uses_gold:
+				colors['gold'] = self.gold
+
 
 		return ColorCombination(self.uses_gold, **colors)
 
@@ -48,8 +55,15 @@ class ColorCombination(object):
 	def __rmul__(self, factor):
 		return self.__mul__(factor)
 
+	def __neg__(self):
+		colors = {color:-getattr(self, color) for color in self.possible_colors}
+		return ColorCombination(self.uses_gold, **colors)
+
 	def __str__(self):
 		return json.dumps(self.as_dict(), indent=4)
+
+	def __repr__(self):
+		return 'ColorCombination object: \n' + str(self)
 
 	def as_dict(self):
 		return {color:self[color] for color in self.possible_colors}
@@ -69,7 +83,9 @@ class ColorCombination(object):
 		this should be done after can_pay_for() checks that it's okay
 		"""
 		difference = self - c2
-		net_shortfall = sum([getattr(difference, color) for color in COST_COLOR_ORDER])
+		#print(difference)
+		net_shortfall = sum([max(0, -getattr(difference, color)) for color in COST_COLOR_ORDER])
+		print('net shortfall ', net_shortfall)
 		if net_shortfall > 0:
 			difference.gold -= net_shortfall
 			for color in difference.possible_colors:
@@ -80,6 +96,11 @@ class ColorCombination(object):
 
 	def serialize(self):
 		return [getattr(self, color) for color in self.possible_colors]
+
+# a small test case
+# v = ColorCombination(True, gold=3, red=1)
+# v2 = ColorCombination(red=2, black=1)
+# print(v.perform_payment(v2))
 
 EACH_COLOR = ColorCombination(True, **{color:1 for color in COST_COLOR_ORDER})
 
