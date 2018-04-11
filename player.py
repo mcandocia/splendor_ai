@@ -17,6 +17,8 @@ purchase something/are more likely to purchase something that may further their 
 
 """
 
+# TODO : re-implement gem arithmetic with new class methods (should be much easier)
+
 class Player(object):
 	def __init__(self, game, id, order, ai=None):
 		self.game = game 
@@ -36,9 +38,9 @@ class Player(object):
 		self.n_cards = 0
 		self.n_reserved_cards = 0
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = {color:0 for color in COLOR_ORDER}
+		self.gems = ColorCombination(True, {color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = {color:0 for color in COST_COLOR_ORDER}
+		self.discounts = ColorCombination({color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
@@ -195,15 +197,18 @@ class Player(object):
 		"""
 		this doubles as a boolean check
 		"""
-		cost = card['cost']
+		cost = card['cost'] - self.discounts
+		
+
 		#calculates the surplus of each color for each part of the cost
-		differences = {color:self.gems[color]+self.discounts[color]-cost[color]
-		for color in COLOR_ORDER}
-		#takes the total amount of gems one is short by
-		net_difference = -sum([max(0, difference) for difference in differences.values()])
+		difference = self.gems - cost 
 		#checks to see if extra gold is enough to purchase 
-		if net_difference < self.gems['gold']:
+		if not self.gems.can_pay_for(cost):
 			return None
+		else:
+			return cost.truncate_negatives() #new_gems = self.gems.make_payment(cost)
+
+		'''
 		elif net_difference==0:
 			base_cost = {color:cost[color] - self.discounts[color] for color in COST_COLOR_ORDER}
 			base_cost['gold'] = 0
@@ -213,18 +218,22 @@ class Player(object):
 			working_gold = min(self.gems['gold'], net_difference)
 			base_cost['gold'] = working_gold
 			return base_cost
+		'''
 
 	def purchase_available_card(self, tier, position, move_cards=True):
 		card = self.get_available_cards(tier).pop(position)
 		card_cost = self.card_purchasing_cost(card)
 		#add points
 		self.points+= card['points']
-		#add color
+		#add color # still technically valid with new class
 		self.discounts[card['color']] += 1
 		#subtract gems
+		self.gems = self.gems.make_payment(card_cost)
+		'''
 		for color, amount in card_cost.iteritems():
 			self.gems[color] -= amount 
 			self.n_gems -= amount
+		'''
 		#add card to inventory
 		self.n_cards += 1
 		if move_cards:
@@ -238,16 +247,15 @@ class Player(object):
 		if move_cards:
 			card = self.reserved_cards.pop(position)
 		else:
-			card = self.reserved_cards.[position]
+			card = self.reserved_cards[position]
 		card_cost = self.card_purchasing_cost(card)
 		#add points
 		self.points+= card['points']
 		#add color
 		self.discounts[card['color']] += 1
 		#subtract gems
-		for color, amount in card_cost.iteritems():
-			self.gems[color] -= amount 
-			self.n_gems -= amount
+		self.gems = self.gems.make_payment(card_cost)
+		
 		#add card to inventory
 		self.n_cards += 1
 		if move_cards:
@@ -280,24 +288,19 @@ class Player(object):
 		if only one, then it adds that and returns a 1
 		if more than one, decides which one, then adds it, then returns 1
 		"""
-		possible_objectives = []
-		for i, objective in self.game.objectives:
-			can_get = True
-			for color, value in objective.iteritems():
-				if self.discounts[color] < value:
-					can_get = False
-					break
-			if can_get:
-				possible_objectives.append(i)
+		possible_objective_ids = []
+		for i, objective in enumerate(self.game.objectives):
+			if self.discounts.can_pay_for(objective):
+				possible_objective_ids.append(i)
 		if len(possible_objectives) == 0:
 			return 0
 		elif len(possible_objectives) == 1:
 			self.points+=3 
 			self.objectives.append(self.game.objectives.pop(possible_objectives[0]))
 		else:
-			objective = self.decide_on_objective(possible_objectives)
+			objective_id = self.decide_on_objective(possible_objective_ids)
 			self.points+=3
-			self.objectives.append(self.game.objectives.pop(objective))	
+			self.objectives.append(self.game.objectives.pop(objective_id))	
 		return 1
 
 	#TODO
@@ -318,6 +321,7 @@ class Player(object):
 	def take_gems(self, gems):
 		"""
 		adds gems to inventory
+		will not update code for ColorCombination class
 		"""
 		for color, amount in gems.iteritems():
 			self.gems[color] += amount
@@ -326,6 +330,7 @@ class Player(object):
 		return 0
 
 	def take_gems_options(self):
+		# will not update
 		possibilities = []
 		if self.n_gems == 10:
 			return []
@@ -334,7 +339,7 @@ class Player(object):
 			#can only take 1
 			for color in COST_COLOR_ORDER:
 				if self.game.gems[color] > 0:
-					possibilities.append({color:1})
+					possibilities.append(ColorCombination({color:1}))
 			return possibilities
 
 		#check all piles that have at least one and all piles with at least 4
@@ -348,11 +353,11 @@ class Player(object):
 					double_colors.add(color)
 				single_colors.add(color)
 		for color in double_colors:
-				possibilities.append({color:2})
+			possibilities.append(ColorCombination({color:2}))
 		if self.n_gems == 8:
 			if len(single_colors)==1:
 				color = list(single_colors)[0]
-				possibilities.append({color:1})
+				possibilities.append(ColorCombination({color:1}))
 			else:
 				possibilities += color_combinations(single_colors, 2)
 		else:
@@ -398,4 +403,4 @@ def color_combinations(colors, n):
 	returns the cost in the form of a dictionary 
 	"""
 	combos = combinations(colors, n)
-	return [{color:1 for color in combo} for combo in combinations]
+	return [ColorCombination({color:1 for color in combo}) for combo in combinations]
