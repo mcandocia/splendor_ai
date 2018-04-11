@@ -1,8 +1,89 @@
 from __future__ import print_function
+import json
 import csv
 
 
-CARD_CSV_FILENAME = '/ntfsl/workspace/splendor_ai/card_data.csv'
+#important when serializing color-dependent data
+COLOR_ORDER = ['black','white','red','blue','green','gold']
+#for card prices and requirements of objectives
+COST_COLOR_ORDER = ['black','white','red','blue','green']
+
+class ColorCombination(object):
+	"""
+	this represents color quantities to make arithmetic simpler
+	"""
+	def __init__(self, uses_gold=False, **colors):
+		self.uses_gold = uses_gold
+		if not uses_gold:
+			self.possible_colors = COST_COLOR_ORDER
+		else:
+			self.possible_colors = COLOR_ORDER 
+		for color in self.possible_colors:
+			setattr(self, color, colors.get(color, 0))
+
+	def __getitem__(self, key):
+		return getattr(self, key)
+
+	def __setitem__(self, attr, key):
+		setattr(self, attr, key)
+
+	def __add__(self, c2):
+		colors = {}
+		for color in self.possible_colors:
+			colors[color] = getattr(self, color) + getattr(c2, color)
+
+		return ColorCombination(self.uses_gold or c2.uses_gold, **colors)
+
+	def __sub__(self, c2):
+		colors = {}
+		for color in self.possible_colors:
+			colors[color] = getattr(self, color) - getattr(c2, color)
+
+		return ColorCombination(self.uses_gold, **colors)
+
+	def __mul__(self, factor):
+		colors = {color:getattr(self, color) * factor for color in self.possible_colors}
+		return ColorCombination(self.uses_gold, **colors)
+
+	def __rmul__(self, factor):
+		return self.__mul__(factor)
+
+	def __str__(self):
+		return json.dumps(self.as_dict(), indent=4)
+
+	def as_dict(self):
+		return {color:self[color] for color in self.possible_colors}
+
+	def __copy__(self):
+		colors = {color:getattr(self, color) for color in self.possible_colors}
+		return ColorCombination(self.uses_gold, **colors)
+
+	def can_pay_for(self, c2):
+		difference = c2 - self
+		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
+		return self.gold >= net_shortfall
+
+	def perform_payment(self, c2):
+		"""
+		calculates difference, but will take out gold when needed
+		this should be done after can_pay_for() checks that it's okay
+		"""
+		difference = self - c2
+		net_shortfall = sum([getattr(difference, color) for color in COST_COLOR_ORDER])
+		if net_shortfall > 0:
+			difference.gold -= net_shortfall
+			for color in difference.possible_colors:
+				setattr(difference, color,
+					max(getattr(difference, color), 0)
+				)
+		return difference
+
+	def serialize(self):
+		return [getattr(self, color) for color in self.possible_colors]
+
+EACH_COLOR = ColorCombination(True, **{color:1 for color in COST_COLOR_ORDER})
+
+CARD_CSV_FILENAME = 'card_data.csv' # '/ntfsl/workspace/splendor_ai/card_data.csv'
 
 CARD_LIST = []
 #IF POINTS OR COST IS 0, THEN THAT VALUE WILL BE INSERTED LATER
@@ -21,7 +102,7 @@ def LOAD_CARDS():
 	global TIER_2_CARDS
 	global TIER_3_CARDS
 	global CARD_LIST
-	with open(CARD_CSV_FILENAME, 'rb') as f:
+	with open(CARD_CSV_FILENAME, 'r') as f:
 		reader = csv.reader(f)
 		next(f)
 		for row in reader:
@@ -29,12 +110,13 @@ def LOAD_CARDS():
 			'tier':row[0],
 			'color':row[1],
 			'points':row[2],
-			'cost':{
-			color:int_or_zero(value) for color, value in 
-			zip(['black','white','red','blue','green'],
-				row[3:])
+			'cost_':{
+				color:int_or_zero(value) for color, value in 
+				zip(['black','white','red','blue','green'],
+					row[3:])
+				}
 			}
-			}
+			data['cost'] = ColorCombination(**data['cost_'])
 			tier = int(row[0])
 			if tier==1:
 				TIER_1_CARDS.append(data)
@@ -46,24 +128,28 @@ def LOAD_CARDS():
 #loads cards into respective lists
 LOAD_CARDS()
 
-OBJECTIVE_CARDS = [
-{'green':4,'blue:4'},
-{'black':4,'white':4},
-{'green':3,'red':3,'blue':3},
-{'red':4,'green':4},
-{'black':4,'red':4},
-{'black':3,'red':3,'white':3},
-{'blue':4,'white':4},
-{'black':3,'red':3,'green':3},
-{'green':3,'blue':3,'white':3},
-{'black':3,'blue':3,'white':3}
+# aka "nobles"
+OBJECTIVE_CARDS_ = [
+	{'green':4,'blue':4},
+	{'black':4,'white':4},
+	{'green':3,'red':3,'blue':3},
+	{'red':4,'green':4},
+	{'black':4,'red':4},
+	{'black':3,'red':3,'white':3},
+	{'blue':4,'white':4},
+	{'black':3,'red':3,'green':3},
+	{'green':3,'blue':3,'white':3},
+	{'black':3,'blue':3,'white':3}
 ]
+
+OBJECTIVE_CARDS = [ColorCombination(**v) for v in OBJECTIVE_CARDS_]
 
 #subtract 1 for each player less than 4 at start of game
 COLOR_STOCKPILE_AMOUNT = 7
 GOLD_STOCKPILE_AMOUNT = 5
 
-#important when serializing color-dependent data
-COLOR_ORDER = ['black','white','red','blue','green','gold']
-#for card prices and requirements of objectives
-COST_COLOR_ORDER = ['black','white','red','blue','green']
+# how much is available at the start
+GEMS_PILE = ColorCombination(True, 
+	gold=GOLD_STOCKPILE_AMOUNT, 
+	**{color:COLOR_STOCKPILE_AMOUNT for color in COST_COLOR_ORDER}
+)
