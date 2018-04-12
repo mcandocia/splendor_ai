@@ -2,6 +2,7 @@ from __future__ import print_function
 import json
 import csv
 
+import numpy as np
 
 #important when serializing color-dependent data
 COLOR_ORDER = ['black','white','red','blue','green','gold']
@@ -108,13 +109,61 @@ class ColorCombination(object):
 		return difference
 
 	def serialize(self):
-		return [getattr(self, color) for color in self.possible_colors]
+		return np.asarray([getattr(self, color) for color in self.possible_colors])
+
+#length = 15
+def serialize_card(card, allow_hidden=False):
+	# this will return a card that is unknown to other players instead of serializing it
+	# requires allow_hidden=True so one doesn't hide their own cards from themselves
+	if card.get('hidden', False) and allow_hidden:
+		return serialize_card(make_blank(card['tier']))
+
+	color_serialization = np.asarray([1*(card['color']==color) for color in COST_COLOR_ORDER])
+	cost_serialization = card['cost'].serialize()
+	point_serialization = np.asarray(card['points'])
+	tier_serialization = np.asarray([1*card['tier']==x for x in range(1,4)])
+	# this allows a blank card to input *some* value into the network
+	blank_serialization = np.asarray([card.get('blank_value', 0)])
+	return np.concatenate((
+		color_serialization, 
+		cost_serialization, 
+		point_serialization, 
+		tier_serialization, 
+		blank_serialization), 
+	)
+
+# length=5
+def serialize_objective(objective):
+	if objective is not None:
+		return objective.serialize()
+	else:
+		return ColorCombination().serialize()
+
+
+# used so that it can be serialized easily
+def make_blank(tier, blank_value=1):
+	# specify blank_value=0 if it can't be replaced
+	# OR use to indicate that is it not known to other players 
+	BLANK_CARD = {
+		'tier': tier,
+		'color': '',
+		'points': 0,
+		'cost': ColorCombination(),
+		'blank': True,
+		'blank_value': blank_value,
+	}
+	return BLANK_CARD
+
+PURE_BLANK_CARD_SERIALIZATION = serialize_card(make_blank(0, 0))
 
 # a small test case
 # v = ColorCombination(True, gold=3, red=1)
 # v2 = ColorCombination(red=2, black=1)
 # print(v.make_payment(v2))
 
+
+
+# these are used for simple arithmetic with ColorCombination class
 EACH_COLOR = ColorCombination(True, **{color:1 for color in COST_COLOR_ORDER})
 
 ONE_GOLD = ColorCombination(True, gold=1)

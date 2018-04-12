@@ -4,6 +4,7 @@ from player import Player
 from constants import *
 from copy import copy, deepcopy
 from random import shuffle
+from itertools import chain
 
 import numpy as np
 
@@ -25,6 +26,10 @@ class Game(object):
 			self.n_players = n_players
 			self.players = [Player(self, id=i, order=i) for i in range(n_players)]
 		self.turn = -1
+
+		# make sure each player knows where other players are relative to them
+		for player in self.players:
+			player.get_other_players()
 
 		self.generate_initial_cards()
 		#self.gems = {color:COLOR_STOCKPILE_AMOUNT - (4-self.n_players) for color in COLOR_ORDER}
@@ -53,7 +58,7 @@ class Game(object):
 		self.tier_2_cards = shuffle(deepcopy(TIER_2_CARDS))
 		self.tier_3_cards = shuffle(deepcopy(TIER_3_CARDS))
 
-		self.objectives = shuffle(deepcopy(OBJECTIVE_CAREDS))[:self.n_players]
+		self.objectives = shuffle(deepcopy(OBJECTIVE_CARDS))[:self.n_players + 1]
 
 		self.available_tier_1_cards = [self.tier_1_cards.pop() for _ in range(4)]
 		self.available_tier_2_cards = [self.tier_2_cards.pop() for _ in range(4)]
@@ -90,13 +95,21 @@ class Game(object):
 		"""
 		TODO: update player extended histories and assign the proper win (1 or 0) value to the second element of each row
 		"""
+		# score primary objective
 		max_score = max([player.score for player in self.players])
 		highest_scoring_players = [player for player in self.players if player.score==max_score]
+
+		# nobles secondary objective
+		max_objectives = max([len(player.objectives) for player in highest_scoring_players])
+		highest_scoring_players = [player for player in highest_scoring_players if len(player.objectives)==max_objectives]
+
+		# efficiency tertiary objective
 		lowest_number_of_cards = min([player.n_cards for player in highest_scoring_players])
 		winning_players = [player for player in highest_scoring_players if player.n_cards==lowest_number_of_cards]
 		for player in winning_players:
 			player.win = True 
 
+	# length = 203-213 (188 + (3-5) * 5)
 	def serialize(self, gem_change = None, available_card_change=None):
 		"""
 		describes the state of the cards and gems on the board in a numeric format using a numpy array
@@ -104,7 +117,48 @@ class Game(object):
 		IMPORTANT: the position of the cards on the board is unimportant within a tier. when implementing a 
 		neural network, try to get the values of the connections from their nodes to be the same as each other 
 		(at least within the same tier)
+
+		available_card_change - {'tier': [1,2,3], 'position': [0,1,2,3], 'can_be_replaced': True/False}
 		"""
+
+		# gem calculations
+		if gem_change is not None:
+			theoretical_gems = self.gems + gem_change
+		else:
+			theoretical_gems = self.gems 
+		gem_serialization = theoretical_gems.serialize()
+
+		# available card change
+		
+		tier_1_cards_serialization = [serialize_card(card) for card in self.available_tier_1_cards]
+		tier_2_cards_serialization = [serialize_card(card) for card in self.available_tier_2_cards]
+		tier_3_cards_serialization = [serialize_card(card) for card in self.available_tier_3_cards]
+		available_cards_serializations = [tier_1_cards_serialization, tier_2_cards_serialization, tier_3_cards_serialization]
+		if available_card_change is not None:
+			tier = available_card_change['tier']
+			position = available_card_change['position']
+			can_be_replaced = available_card_change.get('can_be_replaced', True)
+			available_cards_serializations[ tier-1][position] = serialize_card(
+				make_blank_card(tier,can_be_replaced )
+			)
+
+		# objectives serializations
+		objectives_serializations = [serialize_objective(objective) for objective in self.objectives]
+
+		# turn and last turn
+		turn_serialization = [np.asarray(self.turn)]
+		last_turn_serialization = [np.asarray(1*self.last_turn)]
+
+		return {
+			'gems': gem_serialization, # 6
+			'available_cards': available_cards_serializations, # 12 x 15
+			'objectives': objectives_serializations, # (3-5) x 5
+			'turn': turn_serialization + last_turn_serialization, #2
+		}
+		
+
+
+
 
 	def save_state(self):
 		"""

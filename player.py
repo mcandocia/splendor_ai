@@ -53,6 +53,19 @@ class Player(object):
 		#this should be in [[data, win, game_id], ...] format
 		self.extended_history = []
 
+	def get_other_players(self):
+		"""
+		run when initializing the game to make it easy to access other players 
+		for serializing
+		"""
+		n_players = len(self.game.players)
+		if self.order==0:
+			self.other_players = self.game.players[1:]
+		elif self.order < n_players - 1:
+			self.other_players = self.game.players[self.order+1:] + self.game.players[:self.order]
+		else:
+			self.other_players = self.game.players[:self.order]
+
 	def take_turn(self):
 		"""
 		TODO: record player state at end of turn after action is made
@@ -385,9 +398,9 @@ class Player(object):
 		self.n_cards = 0
 		self.n_reserved_cards = 0
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = {color:0 for color in COLOR_ORDER}
+		self.gems = ColorCombination({color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = {color:0 for color in COST_COLOR_ORDER}
+		self.discounts = ColorCombination({color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
@@ -397,6 +410,86 @@ class Player(object):
 		if reset_extended_history:
 			self.extended_history = []
 
+	# length 59-61 (57 + number of players)
+	def serialize(self, gem_change=None, card_change=None, from_own_perspective=True):
+		"""
+		card_change - {'card': {...}, 'reserved_index': [0,1,2, None], 'position': [0,1,2,3, None]}
+		  reserved_index is the index number of the reserved card in the player's inventory
+		  position is the position of the card in its tier row if it's not reserved; does nothing in this function
+		"""
+		# gem calculations
+		if gem_change is not None:
+			theoretical_gems = self.gems + gem_change
+		else:
+			theoretical_gems = self.gems 
+
+		gem_serialization = theoretical_gems.serialize()
+
+		# card changes
+		reserved_card_serializations = [
+			serialize_card(card, not from_own_perspective)
+			for card in self.reserved_cards
+		]
+		n_reserved = len(reserved_card_serializations)
+
+		if n_reserved < 3:
+			reserved_card_serializations.extend((3-n_reserved) * [PURE_BLANK_CARD_SERIALIZATION])
+
+		if card_change is not None:
+			card = card_change['card']
+			theoretical_points = card_change['card']['points'] + self.points 
+			reserved_index = card_change['reserved_index']
+			color = card['color']
+			
+			if reserved_index is not None:
+				reserved_card_serializations[reserved_index] = PURE_BLANK_CARD_SERIALIZATION
+			else:
+				# do nothing because that doesn't affect the player, only the board state which is handled elsewhere
+				pass
+			theoretical_discount = self.discount + ColorCombination(**{color:1})
+		else:
+			theoretical_points = self.points
+			theoretical_discount = self.discount 
+
+		discount_serialization = theoretical_discount.serialize()
+		points_serialization = np.asarray([theoretical_points])
+
+		# order serialization to enforce symmetry requirements
+		order_serialization = np.zeros(4); order_serialization(self.order) = 1.
+
+		return {
+			'gems': gem_serialization, #6
+			'discount': discount_serialization, #5
+			'points': points_serialization, # 1
+			'reserved_cards': reserved_cards_serializations, # 3 * 15
+			'order': order_serialization, #2-4 (number of players in the game)
+		}
+
+
+
+	def full_serializations(self, gem_changes=None, card_changes=None):
+		# first get serializations of other players, since those are static
+		other_player_serializations = [
+			player.serialize(from_own_perspective=False)
+			for player in self.other_players
+		]
+
+		# for each change combination, get own serialization and board serialization
+		self_serializations = []
+		game_serializations = []
+		for gem_change, card_change in zip(gem_changes, card_changes):
+			self_serializations.append(self.serialize(gem_change=gem_change, card_change=card_change))
+			if card_card_change.get('position', None):
+				game_serializations.append(self.game.serialize(gem_change=gem_change, card_change=card_change))
+			else:
+				game_serializations.append(self.game.serialize(gem_change=gem_change, card_change=None))
+
+		# return those values, which will be ready to be consumed by neural network input
+		return {
+			'other_players': other_player_serializations,
+			'self': self_serializations,
+			'game': game_serializations,
+		}
 
 def color_combinations(colors, n):
 	"""
