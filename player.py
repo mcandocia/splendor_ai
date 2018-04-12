@@ -17,7 +17,15 @@ purchase something/are more likely to purchase something that may further their 
 
 """
 
-# TODO : re-implement gem arithmetic with new class methods (should be much easier)
+# TODO : ensure that players take turns properly
+# TODO : make sure that proper move configs are passed to serializers
+# TODO : implement AI and neural network structures
+# TODO : make sure that AI-readable history is recorded 
+#        includes Q-lag=1,3,5 (for points) and end-game result
+#        see ticket_ai for examples
+# TODO : make sure that human-readable history can be recorded
+# TODO : make sure that some per-game statistics in human-readable history can be recorded (e.g., starting board state)
+# TODO : test run
 
 class Player(object):
 	def __init__(self, game, id, order, ai=None):
