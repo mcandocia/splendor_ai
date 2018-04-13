@@ -110,7 +110,7 @@ class Game(object):
 			player.win = True 
 
 	# length = 203-213 (188 + (3-5) * 5)
-	def serialize(self, gem_change = None, available_card_change=None):
+	def serialize(self, gem_change = None, available_card_change=None, reservation_change=None):
 		"""
 		describes the state of the cards and gems on the board in a numeric format using a numpy array
 
@@ -118,7 +118,7 @@ class Game(object):
 		neural network, try to get the values of the connections from their nodes to be the same as each other 
 		(at least within the same tier)
 
-		available_card_change - {'tier': [1,2,3], 'position': [0,1,2,3], 'can_be_replaced': True/False}
+		available_card_change - {'tier': [1,2,3], 'position': [0,1,2,3], 'can_be_replaced': True/False, 'type': 'board'/'reserved'}
 		"""
 
 		# gem calculations
@@ -133,14 +133,34 @@ class Game(object):
 		tier_1_cards_serialization = [serialize_card(card) for card in self.available_tier_1_cards]
 		tier_2_cards_serialization = [serialize_card(card) for card in self.available_tier_2_cards]
 		tier_3_cards_serialization = [serialize_card(card) for card in self.available_tier_3_cards]
+
+		# make an adjustment to one of the row serializations if the reservation change is not null
+		if reservation_change is not None:
+			if reservation_change['type'] == 'board':
+				tier = reservation_change['tier']
+				position = reservation_change['position']
+				if tier==1:
+					target_serialization = tier_1_cards_serialization
+					blank_value = (len(self.tier_1_cards) > 0) * 1
+				elif tier==2:
+					target_serialization = tier_2_cards_serialization
+					blank_value = (len(self.tier_2_cards) > 0) * 1
+				elif tier==3:
+					target_serialization = tier_3_cards_serialization
+					blank_value = (len(self.tier_3_cards) > 0) * 1
+
+				target_serialization[position] = serialize_card(make_blank_card(tier=tier, blank_value=blank_value))
+
 		available_cards_serializations = [tier_1_cards_serialization, tier_2_cards_serialization, tier_3_cards_serialization]
+
 		if available_card_change is not None:
-			tier = available_card_change['tier']
-			position = available_card_change['position']
-			can_be_replaced = available_card_change.get('can_be_replaced', True)
-			available_cards_serializations[ tier-1][position] = serialize_card(
-				make_blank_card(tier,can_be_replaced )
-			)
+			if available_card_change['type'] == 'board':
+				tier = available_card_change['tier']
+				position = available_card_change['position']
+				can_be_replaced = available_card_change.get('can_be_replaced', True)
+				available_cards_serializations[tier-1][position] = serialize_card(
+					make_blank_card(tier,can_be_replaced )
+				)
 
 		# objectives serializations
 		objectives_serializations = [serialize_objective(objective) for objective in self.objectives]

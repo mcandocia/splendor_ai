@@ -79,6 +79,11 @@ class ColorCombination(object):
 		colors = {color:max(0, getattr(self, color)) for color in self.possible_colors}
 		return ColorCombinations(self.uses_gold, **colors)
 
+	def keep_only_negatives(self):
+		# used for calculating what needs to be converted to gold
+		colors = {color:min(0, getattr(self, color)) for color in self.possible_colors}
+		return ColorCombinations(self.uses_gold, **colors)
+
 	def __copy__(self):
 		colors = {color:getattr(self, color) for color in self.possible_colors}
 		return ColorCombination(self.uses_gold, **colors)
@@ -90,6 +95,13 @@ class ColorCombination(object):
 		difference = c2 - self
 		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
 		return self.gold >= net_shortfall
+
+	def calculate_actual_cost(self, c2):
+		# get actual cost; used after can_pay_for() returns True
+		difference = c2 - self
+		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
+		cost = ONE_GOLD * net_shortfall + (c2 + difference.keep_only_negatives())
+		return cost
 
 	def make_payment(self, c2):
 		"""
@@ -141,7 +153,7 @@ def serialize_objective(objective):
 
 
 # used so that it can be serialized easily
-def make_blank(tier, blank_value=1):
+def make_blank_card(tier, blank_value=1):
 	# specify blank_value=0 if it can't be replaced
 	# OR use to indicate that is it not known to other players 
 	BLANK_CARD = {
@@ -150,7 +162,9 @@ def make_blank(tier, blank_value=1):
 		'points': 0,
 		'cost': ColorCombination(),
 		'blank': True,
-		'blank_value': blank_value,
+		# for cards on board, this indicates if it will be replaced or not
+		# for cards in player reserve zone, this indicates if card data is known or not
+		'blank_value': blank_value, 
 	}
 	return BLANK_CARD
 

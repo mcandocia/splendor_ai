@@ -1,6 +1,7 @@
 from __future__ import print_function
 from constants import * 
 from itertools import combinations
+from itertools import zip_longest
 
 import numpy as np 
 
@@ -145,6 +146,43 @@ class Player(object):
 		  [prob, action_kwargs, action_type]
 		"""
 
+		purchasing_options = []
+		payment_options = []
+
+		# cards on board
+		for tier in [1,2,3]:
+			available_cards = self.game.get_available_cards(tier=tier)
+			deck_cards = self.game.get_deck(tier=tier)
+			can_be_replaced = len(deck_cards) > 0
+			for i, card in available_cards:
+				net_cost = (card['cost'] - self.discount).truncate_negatives()
+				if self.gems.can_pay_for(net_cost):
+					payment_options.append(self.gems.calculate_actual_cost(net_cost))
+					card_purchase = {
+						'position': i,
+						'tier': tier,
+						'can_be_replaced': can_be_replaced,
+						'type': 'board',
+						'card': card
+					}
+					purchasing_options.append(card_purchase)
+
+		# reserved cards
+		for i, card in enumerate(self.reserved_cards):
+			if card is not None:
+				net_cost = (card['cost'] - self.discount).truncate_negatives()
+				if self.gems.can_pay_for(net_cost):
+					payment_options.append(self.gems.calculate_actual_cost(net_cost))
+					card_purchase = {
+						'position': i,
+						'tier': tier,
+						'can_be_replaced': False,
+						'type': 'reserved',
+						'card': card
+
+					}
+					purchasing_options.append(card_purchase)
+
 	def simulate_reserving_options(self):
 		"""
 		creates all possible reserving options and returns corresponding probabilities and action types
@@ -153,6 +191,33 @@ class Player(object):
 		 list of
 		  [prob, action_kwargs, action_type]
 		"""
+		# skip if 3 cards already reserved
+		if len(self.reserved_cards) == 3:
+			return []
+
+		# cannot get gold if none exists or you have 10 gems
+		if self.game.gems.gold==0 or self.gems.count() == 10:
+			gem_change = ColorCombination(uses_gold=True)
+		else:
+			gem_change = ColorCombination(gold=1,uses_gold=True)
+
+		reservation_options = []
+		# cards on board
+		for tier in [1,2,3]:
+			tier_cards = self.game.get_available_cards(tier=tier)
+			for i, card in enumerate(tier_cards):
+				if card is not None:
+					reservation_options.append({'tier':tier, 'position':position, 'type':'board'})
+
+		# cards on top of deck
+		for tier in [1,2,3]:
+			if len(self.game.get_deck(tier=tier)) > 0:
+				reservation_options.append({'tier':tier, 'position': 0, 'type':'topdeck'})
+
+		reservation_serializations = self.full_serialization(
+			gem_changes = [gem_change] * len(reservation_options),
+			reservation_changes = reservation_options
+		)
 
 	def simulate_gem_taking_options(self):
 		"""
@@ -162,6 +227,15 @@ class Player(object):
 		 list of
 		  [prob, action_kwargs, action_type]
 		"""
+		# skip if has 10 gems
+		if self.gems.count() == 10:
+			return []
+
+		# determine all combinations
+		gem_combinations = self.take_gems_options()
+		gem_serializations = self.full_serialize(gem_changes=gem_combinations)
+
+		# make prediction
 
 	def determine_best_option(self, all_options):
 		"""
@@ -173,16 +247,6 @@ class Player(object):
 		"""
 		if len(all_options) == 0:
 			return None
-
-	def serialize(self, attribute_modification_list=None):
-		"""
-		args:
-		 attribute_modification_list - [ {attribute_name:change, ...}, ... ]
-		 this should be a list of dictionaries that describe changes to be made to a theoretical 
-
-		this should return a numpy-matrix with a number of rows equal to the length of the outer list,
-		for each possible change
-		"""
 
 	def save_state(self):
 		"""
@@ -228,18 +292,6 @@ class Player(object):
 			return None
 		else:
 			return cost.truncate_negatives() #new_gems = self.gems.make_payment(cost)
-
-		'''
-		elif net_difference==0:
-			base_cost = {color:cost[color] - self.discounts[color] for color in COST_COLOR_ORDER}
-			base_cost['gold'] = 0
-			return base_cost
-		else:
-			base_cost = {color:cost[color] - self.discounts[color] for color in COST_COLOR_ORDER}
-			working_gold = min(self.gems['gold'], net_difference)
-			base_cost['gold'] = working_gold
-			return base_cost
-		'''
 
 	def purchase_available_card(self, tier, position, move_cards=True):
 		card = self.get_available_cards(tier).pop(position)
@@ -351,6 +403,8 @@ class Player(object):
 		return 0
 
 	def take_gems_options(self):
+		# returns a list of ColorCombination objects
+
 		# will not update
 		possibilities = []
 		if self.n_gems == 10:
@@ -419,11 +473,17 @@ class Player(object):
 			self.extended_history = []
 
 	# length 59-61 (57 + number of players)
-	def serialize(self, gem_change=None, card_change=None, from_own_perspective=True):
+	def serialize(self, gem_change=None, card_change=None, reservation_change=None, from_own_perspective=True):
 		"""
+		# note: this is for purchasing a card, not reserving
 		card_change - {'card': {...}, 'reserved_index': [0,1,2, None], 'position': [0,1,2,3, None]}
 		  reserved_index is the index number of the reserved card in the player's inventory
 		  position is the position of the card in its tier row if it's not reserved; does nothing in this function
+
+		card_reservation - {'type': 'board'/'topdeck', 'tier': [1,2,3], 'position':[0,1,2,3]}
+		  type is if itis on the board or if it is on top of a deck
+		  tier corresponds to the row or deck tier
+		  position corresponds to the position on the board; 0 if on top of the deck
 		"""
 		# gem calculations
 		if gem_change is not None:
@@ -438,15 +498,33 @@ class Player(object):
 			serialize_card(card, not from_own_perspective)
 			for card in self.reserved_cards
 		]
+
+		# hypothetical reservation
+		if reservation_change is not None:
+			tier = card_reservation['tier']
+			if reservation_change['type'] == 'topdeck':
+				reserved_card_serializations.append(
+					serialize_card(make_blank_card(tier=tier))
+				)
+			else:
+				position = reservation_change['position']
+				reserved_card_serializations.append(
+					serialize_card(self.game.get_available_cards(tier=tier)[position])
+				)
+
 		n_reserved = len(reserved_card_serializations)
 
+		# fill in with blank reservation slots (they still need 0-filled serializations)
 		if n_reserved < 3:
 			reserved_card_serializations.extend((3-n_reserved) * [PURE_BLANK_CARD_SERIALIZATION])
 
 		if card_change is not None:
 			card = card_change['card']
 			theoretical_points = card_change['card']['points'] + self.points 
-			reserved_index = card_change['reserved_index']
+			if card_change['type'] == 'reserved'
+				reserved_index = card_change['position']
+			else:
+				reserved_index = None
 			color = card['color']
 			
 			if reserved_index is not None:
@@ -475,7 +553,7 @@ class Player(object):
 
 
 
-	def full_serializations(self, gem_changes=None, card_changes=None):
+	def full_serializations(self, gem_changes=None, card_changes=None, reservation_changes=None):
 		# first get serializations of other players, since those are static
 		other_player_serializations = [
 			player.serialize(from_own_perspective=False)
@@ -485,12 +563,15 @@ class Player(object):
 		# for each change combination, get own serialization and board serialization
 		self_serializations = []
 		game_serializations = []
-		for gem_change, card_change in zip(gem_changes, card_changes):
+		for gem_change, card_change, reservation_change in zip_longest(gem_changes, card_changes, reservation_changes):
+
 			self_serializations.append(self.serialize(gem_change=gem_change, card_change=card_change))
-			if card_card_change.get('position', None):
-				game_serializations.append(self.game.serialize(gem_change=gem_change, card_change=card_change))
-			else:
-				game_serializations.append(self.game.serialize(gem_change=gem_change, card_change=None))
+
+			game_serializations.append(self.game.serialize(
+				gem_change=gem_change, 
+				card_change=None, 
+				reservation_change=reservation_change)
+			)
 
 		# return those values, which will be ready to be consumed by neural network input
 		return {
