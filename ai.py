@@ -76,7 +76,6 @@ class SplendorAI(object):
 
 		self.model_inputs =  (
 			self.player_inputs + 
-			self.reserved_inputs + 
 			[self.game_inputs] +
 			self.game_objective_inputs + 
 			list(chain(*self.reserved_inputs)) +
@@ -209,43 +208,67 @@ class SplendorAI(object):
 
 		return next_layer
 
+	def map_game_inputs_to_network_inputs(self, inputs):
+		"""
+		will align the numpy/dict input returned by Player.full_serialization() 
+		to the inputs used by the neural network
+		"""
 
+		# player inputs, game input, game objectives, player reserved, game cards
+		self_raw_input = np.concatenate([input['self'][k] for k in ['gems','discount','points','order']])
 
-	def create_self_network(self):
+		self_reserved_input = np.concatenate(input['self']['reserved'])
 
-		# gems input, 6
+		player_raw_inputs = np.concatenate(
+			[
+				np.concatenate(
+					[
+						serializations[k] for k in ['gems','discount','points','order']
+					]
+					for serializations in input['other_players']
+				)
+			]
+		)
 
-		# discount input, 5
+		player_reserved_inputs = np.concatenate(
+			[
+				np.concatenate(player_input['reserved'])
+				for player_input in input['other_players']
+			]
+		)
 
-		# points, 1
+		game_raw_input = np.concatenate(
+			[input['game'][k] for k in ['gems','turn']] # note that the turn number + last turn is in the 'turn' key
+		)
 
-		# order, 2-4
+		game_objective_input = np.concatenate(input['game']['objectives'])
 
-		# reserved cards, 3x15 shared
+		game_card_input = np.concatenate(
+			[np.concatenate(input['available_cards'][tier-1] for tier in [1,2,3])]
+		)
 
-	def create_other_player_network(self):
-		
-		# gems input, 6
+		# combine all input
 
-		# discount input, 5
+		return np.concatenate(
+			self_raw_input,
+			player_raw_inputs,
+			game_raw_input,
+			game_objective_input,
+			self_reserved_input,
+			player_reserved_inputs,
+			game_card_input
+		)
 
-		# points, 1
+	def make_predictions(self, inputs):
+		network_inputs = map_game_inputs_to_network_inputs(inputs)
 
-		# order, 2-4
+		win_prediction = self.win_model.predict(network_inputs)[:,0]
+		q_predictions = []
+		for i, q_index in enumerate(self.self.hyperparameters['output_layers']):
+			q_predictions[i] = self.q_networks[i].predict(network_inputs)[:,0]
 
-		# reserved_cards, 3x15 shared
+		return({'win_prediction': win_prediction, 'q_predictions': q_predictions})
 
-
-	def create_game_network(self):
-		# gems available, 6
-
-		# cards on board, 12 x 15
-
-		# objectives available, (3-5) x 5
-
-		# turn, 1
-
-		# is last turn, 1
 
 	def determine_winning_probability(self, state):
 		"""

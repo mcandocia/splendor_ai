@@ -29,7 +29,7 @@ purchase something/are more likely to purchase something that may further their 
 # TODO : test run
 
 class Player(object):
-	def __init__(self, game, id, order, ai=None):
+	def __init__(self, game, id, order, ai=None, decision_weighting=None):
 		self.game = game 
 		self.id = id
 		self.order = order 
@@ -39,6 +39,7 @@ class Player(object):
 			self.ai = SplendorAI()
 
 		self.points = 0
+		self.decision_weighting=decision_weighting
 		#cards that contribute to cost reduction and points
 		self.owned_cards = []
 		#cards that can be purchased only by player
@@ -61,6 +62,9 @@ class Player(object):
 		#describes history for all games; this will be used to train the neural network
 		#this should be in [[data, win, game_id], ...] format
 		self.extended_history = []
+
+	def set_decision_weighting(self, weights):
+		self.decision_weighting = weights
 
 	def get_other_players(self):
 		"""
@@ -88,14 +92,30 @@ class Player(object):
 		if not self.game.last_turn:
 			self.victory_check()
 
+	def decide_among_options(self, purchasing_options, reserving_options, gem_taking_options):
+		# determine parameters used to weight the 3 categories amongst themselves, then the options among the categories
+
+
+		# there is a default weight associated with each major type of action
+
+		# this multiplies the score of each action in a category
+
+		# there is a temperature parameter in decision_weighting that uses boltzmann sampling from the resultant score
+
+		# 
+
+
 	def make_turn_action(self):
 		"""
 		
 		"""
-		purchase_options = self.simulate_purchasing_options()
+		purchasing_options = self.simulate_purchasing_options()
 		reserving_options = self.simulate_reserving_options()
 		gem_taking_options = self.simulate_gem_taking_options()
 
+		# now determine best course of action based on q-weighting
+
+		# this code no longer applies
 		all_options = purchase_options + reserving_options + gem_taking_options 
 		option = self.determine_best_option(all_options)
 		if option is None:
@@ -183,6 +203,22 @@ class Player(object):
 					}
 					purchasing_options.append(card_purchase)
 
+		if len(purchasing_options) > 0:
+			purchasing_serializations = self.full_serialization(
+				gem_changes=payment_options,
+				card_changes=purchasing_options,
+			)
+			predictions = self.ai.make_predictions(purchasing_serializations)
+			return {
+				'predictions': predictions,
+				'actions': {
+					'gem_changes': payment_options,
+					'card_changes': purchasing_options,
+				}
+			}
+		else:
+			return None
+
 	def simulate_reserving_options(self):
 		"""
 		creates all possible reserving options and returns corresponding probabilities and action types
@@ -214,10 +250,24 @@ class Player(object):
 			if len(self.game.get_deck(tier=tier)) > 0:
 				reservation_options.append({'tier':tier, 'position': 0, 'type':'topdeck'})
 
-		reservation_serializations = self.full_serialization(
-			gem_changes = [gem_change] * len(reservation_options),
-			reservation_changes = reservation_options
-		)
+		if len(reservation_options) > 0:
+			gem_changes = [gem_change] * len(reservation_options)
+			reservation_serializations = self.full_serialization(
+				gem_changes=gem_changes,
+				reservation_changes = reservation_options
+			)
+
+			predictions = self.ai.make_predictions(reservation_serializations)
+			return {
+				'predictions':predictions, 
+				'actions': {
+					'gem_changes': gem_changes, 
+					'reservation_changes':reservation_options
+				}
+			}
+		else:
+			return None
+
 
 	def simulate_gem_taking_options(self):
 		"""
@@ -233,9 +283,17 @@ class Player(object):
 
 		# determine all combinations
 		gem_combinations = self.take_gems_options()
-		gem_serializations = self.full_serialize(gem_changes=gem_combinations)
-
-		# make prediction
+		if len(gem_combinations) > 0:
+			gem_serializations = self.full_serialize(gem_changes=gem_combinations)
+			predictions = self.ai.make_predictions(gem_serializations)
+			return {
+				'predictions': predictions,
+				'actions': {
+					'gem_changes': gem_combinations,
+				}
+			}
+		else:
+			return None
 
 	def determine_best_option(self, all_options):
 		"""
@@ -541,7 +599,8 @@ class Player(object):
 		points_serialization = np.asarray([theoretical_points])
 
 		# order serialization to enforce symmetry requirements
-		order_serialization = np.zeros(4); order_serialization(self.order) = 1.
+		order_serialization = np.zeros(4)
+		order_serialization[self.order] = 1.
 
 		return {
 			'gems': gem_serialization, #6
