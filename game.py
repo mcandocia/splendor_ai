@@ -8,6 +8,15 @@ from itertools import chain
 
 import numpy as np
 
+def gem_reduction(n_players):
+	# number of gems to take out given 2, 3, and 4-player games
+	if n_players==3:
+		return 2
+	elif n_players==2:
+		return 3
+	else:
+		return 0
+
 class Game(object):
 	"""
 	TODO: add some game-based hyperparameters that determine 
@@ -34,7 +43,7 @@ class Game(object):
 		self.generate_initial_cards()
 		#self.gems = {color:COLOR_STOCKPILE_AMOUNT - (4-self.n_players) for color in COLOR_ORDER}
 		#self.gems['gold'] = GOLD_STOCKPILE_AMOUNT
-		self.gems = GEMS_PILE - (4-self.n_players) * EACH_COLOR
+		self.gems = GEMS_PILE - gem_reduction(n_players) * EACH_COLOR
 		self.last_turn = False
 
 	#TODO: add methods to append 

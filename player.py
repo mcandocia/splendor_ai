@@ -28,8 +28,59 @@ purchase something/are more likely to purchase something that may further their 
 # TODO : make sure that some per-game statistics in human-readable history can be recorded (e.g., starting board state)
 # TODO : test run
 
+# used to convert score weighting to positive weights
+def elu(x):
+	if x < 500:
+		return np.log1p(np.exp(x))
+	else:
+		return x
+
+def normalize(x):
+	return np.asarray(x)/np.sum(x)
+
+def get_phase_parameters(phase):
+	"""
+	training will be divided into 5 phases
+
+	"""
+	if phase==1:
+		return {
+			'Q1': 0.5,
+			'Q3': 0.3,
+			'Q5': 0.15,
+			'win': 0.05,
+		}
+	elif phase==2:
+		return {
+			'Q1': 0.4,
+			'Q3': 0.25,
+			'Q5': 0.2,
+			'win': 0.15,
+		}
+	elif phase==3:
+		return {
+			'Q1': 0.25,
+			'Q3': 0.25,
+			'Q5': 0.25,
+			'win': 0.25,
+		}
+	elif phase==4:
+		return {
+			'Q1': 0.15,
+			'Q3': 0.2,
+			'Q5': 0.35,
+			'win': 0.3,
+		}
+	elif phase==5:
+		return {
+			'Q1': 0.05,
+			'Q3': 0.1,
+			'Q5': 0.35,
+			'win': 0.50,
+		}
+
 class Player(object):
-	def __init__(self, game, id, order, ai=None, decision_weighting=None):
+	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1):
 		self.game = game 
 		self.id = id
 		self.order = order 
@@ -55,16 +106,34 @@ class Player(object):
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
 
-		#describes the history for the current game
-		#this should be in [[data], ...] format, where [data] is a numpy vector of the game state
-		# from the perspective of the player
-		self.history = []
-		#describes history for all games; this will be used to train the neural network
+		## describes the history for the current game
+		# this should have a dict of basic game information
+		# describes game state at the beginning of a turn
+		self.plain_state_history = []
+		# describes the actions in plain terms
+		self.plain_action_history = []
+		# these are the raw serializations used for each player in a turn
+		self.serialized_action_history = []
+
+		## describes serialized history for all games; this will be used to train the neural network
 		#this should be in [[data, win, game_id], ...] format
-		self.extended_history = []
+		self.extended_serialized_action_history = []
+		self.extended_plain_action_history = []
+		self.extended_plain_state_history = []
+
+		# this describes the response variable at each time step
+		# this should be of the format [{'win': value, 'Q1': value, 'Q3': value, 'Q5': value}, ...]
+		# the reason they aren't all put into one is that extending the array requires copying and that's very expensive to
+		# do over thousands of simulations
+		# this is only calculated at the end of the game when all values of Q1, Q3, Q5, and win state can be certain
+		self.extended_output = []
+
 
 	def set_decision_weighting(self, weights):
 		self.decision_weighting = weights
+
+	def set_temperature(self, temperature):
+		self.temperature=temperature
 
 	def get_other_players(self):
 		"""
@@ -92,17 +161,84 @@ class Player(object):
 		if not self.game.last_turn:
 			self.victory_check()
 
+	def make_choice(self, score):
+		"""
+		uses temperature to randomly decide on decision index
+		based on Boltzmann Distribution
+		"""
+		# at T=1, minimum probability for action is about 1/20,000
+		score = np.maximum(score - np.max(score), -10)
+		# condition prevents underflow errors
+		if self.temperature < 0.01:
+			choice = np.argmax(score)
+		else:
+			score = np.exp(score/self.temperature)
+		choice = np.choice.random(
+			np.arange(len(score)),
+			p=score/np.sum(score)
+		)
+		return choice
+
+
+
 	def decide_among_options(self, purchasing_options, reserving_options, gem_taking_options):
 		# determine parameters used to weight the 3 categories amongst themselves, then the options among the categories
+		# first, use group averaging to decide among 3 possible options (if valid) among outcome
+		if purchasing_options is None:
+			purchasing_weight = 0
+		else:
+			purchasing_weight = np.max(purchasing_options['score'])
 
+		if reserving_options is None:
+			reserving_weight = 0
+		else:
+			reserving_weight = np.max(purchasing_options['score'])
 
-		# there is a default weight associated with each major type of action
+		if gem_taking_options is None:
+			gem_taking_weight = 0
+		else:
+			gem_taking_weight = np.max(purchasing_options['score'])
 
-		# this multiplies the score of each action in a category
+		if purchasing_weight + reserving_weight + gem_taking_weight==0:
+			print("WARNING: NO ACTIONS CAN BE TAKEN!")
+			return None
 
-		# there is a temperature parameter in decision_weighting that uses boltzmann sampling from the resultant score
+		action = ['purchase','reserve','take_gems'][self.make_choice(
+			np.asarray([purchasing_weight, reserving_weight, gem_taking_weight])
+		)]
 
-		# 
+		if action=='purchase':
+			which_purchase = self.make_choice(purchasing_options['score'])
+			serialization = purchasing_options['serializations'][which_purchase]
+			return (
+				action, 
+				{
+					'card_changes': purchasing_options['actions']['card_changes'][which_purchase],
+					'gem_changes': purchasing_options['actions']['gem_changes'][which_purchase],
+				}, 
+				serialization
+			)
+		elif action=='reserve':
+			which_reserve = self.make_choice(reserving_options['score'])
+			serialization = gem_taking_options['serializations'][which_gems]
+			return (
+				action, 
+				{
+					'reserving_changes': reserving_options['actions']['card_changes'][which_reserve],
+					'gem_changes': reserving_options['actions']['gem_changes'][which_reserve],
+				}, 
+				serialization,
+			)
+		elif action=='take_gems':
+			which_gems = self.make_choice(gem_taking_options['score'])
+			serialization = gem_taking_options['serializations'][which_gems]
+			return (
+				action, 
+				{
+					'gem_changes': reserving_options['actions']['gem_changes'][which_gems]
+				}, 
+				serialization
+			)
 
 
 	def make_turn_action(self):
@@ -114,7 +250,20 @@ class Player(object):
 		gem_taking_options = self.simulate_gem_taking_options()
 
 		# now determine best course of action based on q-weighting
-
+		action_type, action_params, serialization = self.decide_on_action(
+			purchasing_options=purchasing_options,
+			reserving_options=reserving_options,
+			gem_taking_options=gem_taking_options
+		)
+		if action_type is None:
+			print(':-(')
+		elif action_type == 'purchase':
+			self.purchase_available_card(**action_params)
+		elif action_type == 'reserve':
+			pass
+		elif action_type == 'take_gems':
+			pass
+		
 		# this code no longer applies
 		all_options = purchase_options + reserving_options + gem_taking_options 
 		option = self.determine_best_option(all_options)
@@ -156,6 +305,19 @@ class Player(object):
 
 
 	"""
+
+	def calculate_score(self, predictions):
+		win_predictions = predictions['win_predictions']
+		Q1_prediction = predictions['q_predictions'][0]
+		Q3_prediction = predictions['q_predictions'][1]
+		Q5_prediction = predictions['q_predictions'][2]
+		score = (
+			(win_predictions * 15) * self.decision_weighting['win'] + 
+			Q1_prediction * self.decision_weighting['Q1'] + 
+			Q3_prediction * self.decision_weighting['Q3'] + 
+			Q5_prediction * self.decision_weigthing['Q5']
+		)
+		return score
 
 	def simulate_purchasing_options(self):
 		"""
@@ -211,6 +373,8 @@ class Player(object):
 			predictions = self.ai.make_predictions(purchasing_serializations)
 			return {
 				'predictions': predictions,
+				'score': self.calculate_score(predictions),
+				'serializations': purchasing_serializations,
 				'actions': {
 					'gem_changes': payment_options,
 					'card_changes': purchasing_options,
@@ -260,6 +424,8 @@ class Player(object):
 			predictions = self.ai.make_predictions(reservation_serializations)
 			return {
 				'predictions':predictions, 
+				'score': self.calculate_score(predictions),
+				'serializations': reservation_serializations,
 				'actions': {
 					'gem_changes': gem_changes, 
 					'reservation_changes':reservation_options
@@ -288,22 +454,13 @@ class Player(object):
 			predictions = self.ai.make_predictions(gem_serializations)
 			return {
 				'predictions': predictions,
+				'score': self.calculate_score(predictions),
+				'serializations': gem_serializations,
 				'actions': {
 					'gem_changes': gem_combinations,
 				}
 			}
 		else:
-			return None
-
-	def determine_best_option(self, all_options):
-		"""
-		will use game-based hyperparameters to decide on best options
-		namely, a "fuzziness" parameter will select a choice based on the probabilities, and 
-		earlier in the training process, there will be more leeway in determining 
-
-		
-		"""
-		if len(all_options) == 0:
 			return None
 
 	def save_state(self):
@@ -351,7 +508,32 @@ class Player(object):
 		else:
 			return cost.truncate_negatives() #new_gems = self.gems.make_payment(cost)
 
+	def purchase_card(self, card):
+		"""
+		this will translate the card input to purchase either available or reserved card functions below
+		"""
+		tier = card['tier']
+		position = card['position']
+		if card['type'] == 'reserved':
+			self.purchase_reserved_card(position=position)
+		elif card['type'] == 'board':
+			self.purchase_available_card(tier=tier, position=position)
+
+	def reserve_card(self, card):
+		"""
+		this will translate the reserving card input to reserve a card eitehr on board on on top of a deck
+		"""
+		tier = card['tier']
+		position = card['position']
+		if card['type'] == 'topdeck':
+			self.reserve_card_on_top(tier=tier)
+		elif card['type'] == 'board':
+			self.reserve_card_on_board(tier=tier, position=position)
+
 	def purchase_available_card(self, tier, position, move_cards=True):
+		"""
+		note: I am unsure why I have a move_cards parameter here...
+		"""
 		card = self.get_available_cards(tier).pop(position)
 		card_cost = self.card_purchasing_cost(card)
 		#add points
@@ -403,7 +585,7 @@ class Player(object):
 			self.take_gems({'gold':1})
 		return 0
 
-	def reserve_card_on_board(self. tier, position):
+	def reserve_card_on_board(self, tier, position):
 		self.n_reserved_cards += 1
 		self.reserved_cards.append(self.game.get_available_cards(tier).pop(position))
 		self.game.add_top_card_to_available(tier)
@@ -454,11 +636,15 @@ class Player(object):
 		adds gems to inventory
 		will not update code for ColorCombination class
 		"""
+		self.gems = self.gems + gems
+		self.game.gems = self.game.gems - gems 
+		'''
 		for color, amount in gems.iteritems():
 			self.gems[color] += amount
 			self.game.gems[color] -= amount
 			self.n_gems +=1
 		return 0
+		'''
 
 	def take_gems_options(self):
 		# returns a list of ColorCombination objects
@@ -526,9 +712,16 @@ class Player(object):
 		#self.draw = False#will allow multiple victories in rare instances
 
 		#describes the history for the current game
-		self.history = []
+		# describes game state at the beginning of a turn
+		self.plain_state_history = []
+		# describes the actions in plain terms
+		self.plain_action_history = []
+		# these are the raw serializations used for each player in a turn
+		self.serialized_action_history = []
 		if reset_extended_history:
-			self.extended_history = []
+			self.extended_serialized_action_history = []
+			self.extended_plain_action_history = []
+			self.extended_plain_state_history = []
 
 	# length 59-61 (57 + number of players)
 	def serialize(self, gem_change=None, card_change=None, reservation_change=None, from_own_perspective=True):
@@ -609,7 +802,6 @@ class Player(object):
 			'reserved_cards': reserved_cards_serializations, # 3 * 15
 			'order': order_serialization, #2-4 (number of players in the game)
 		}
-
 
 
 	def full_serializations(self, gem_changes=None, card_changes=None, reservation_changes=None):

@@ -14,7 +14,7 @@ os.makedirs(NETWORK_DIRECTORY, exist_ok=True)
 # funnel layers are layers that can be shared that convert a block of data to some other representation
 # it is similar to word2vec
 
-# constants to define 
+# constants to define; default
 NETWORK_HYPERPARAMETERS = {
 	# player input
 	'player_funnel_layers': [15,12,10],
@@ -208,7 +208,7 @@ class SplendorAI(object):
 
 		return next_layer
 
-	def map_game_inputs_to_network_inputs(self, inputs):
+	def map_game_input_to_network_inputs(self, input):
 		"""
 		will align the numpy/dict input returned by Player.full_serialization() 
 		to the inputs used by the neural network
@@ -260,7 +260,7 @@ class SplendorAI(object):
 		)
 
 	def make_predictions(self, inputs):
-		network_inputs = map_game_inputs_to_network_inputs(inputs)
+		network_inputs = np.vstack([map_game_input_to_network_inputs(input) for input in inputs])
 
 		win_prediction = self.win_model.predict(network_inputs)[:,0]
 		q_predictions = []
