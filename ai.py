@@ -63,6 +63,8 @@ class SplendorAI(object):
 		if the 
 		"""
 		self.id = id
+		self.n_players = game.n_players
+
 		self.hyperparameters = deepcopy(NETWORK_HYPERPARAMETERS)
 		self.hyperparameters.update(hyperparameters)
 
@@ -81,8 +83,6 @@ class SplendorAI(object):
 			list(chain(*self.reserved_inputs)) +
 			list(chain(*self.game_cards_inputs))
 		)
-
-		self.n_players = len(game.players)
 
 		if load_params is not None:
 			model_index = load_params.get('index', 0)
@@ -140,7 +140,7 @@ class SplendorAI(object):
 			next_layer = self.player_inputs[i]
 			for j, funnel_layer in enumerate(player_funnel_layers):
 				if j==injection_index:
-					next_layer = funnel_layer(keras.layers.concatenate(next_layer, reserved_networks[i]))
+					next_layer = funnel_layer(keras.layers.concatenate([next_layer, reserved_networks[i]]))
 				else:
 					next_layer = funnel_layer(next_layer)
 			player_networks.append(next_layer)
@@ -150,7 +150,7 @@ class SplendorAI(object):
 		
 
 		game_funnel_layers = [Dense(n, activation='relu') for n in self.hyperparameters['game_funnel_layers']]
-		game_objective_funnel_layers = [Dense(n, activation='relu') for n in self.hyperparameters['game_objetive_funnel_layers']]
+		game_objective_funnel_layers = [Dense(n, activation='relu') for n in self.hyperparameters['game_objective_funnel_layers']]
 		game_card_funnel_layers = [Dense(n, activation='relu') for n in self.hyperparameters['game_card_funnel_layers']]
 
 		# regular game input
@@ -175,7 +175,7 @@ class SplendorAI(object):
 		for tier in range(3):
 			for position in range(4):
 				next_layer = self.game_cards_inputs[tier][position]
-				for funnel_layer in self.game_card_funnel_layers:
+				for funnel_layer in game_card_funnel_layers:
 					next_layer = funnel_layer(next_layer)
 				card_layers.append(next_layer)
 

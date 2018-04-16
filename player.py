@@ -6,6 +6,7 @@ from itertools import zip_longest
 import numpy as np 
 
 from ai import NETWORK_HYPERPARAMETERS
+from ai import SplendorAI
 
 q_loadings = NETWORK_HYPERPARAMETERS['output_layers']
 
@@ -92,7 +93,7 @@ class Player(object):
 		if ai is not None:
 			self.ai = ai
 		else:
-			self.ai = SplendorAI()
+			self.ai = SplendorAI(id=id, game=game)
 
 		self.points = 0
 		# this should be retrieved via get_phase_parameters()
@@ -105,10 +106,11 @@ class Player(object):
 		#faster way of keeping track of cards
 		self.n_cards = 0
 		self.n_reserved_cards = 0
+		# updating this isn't implemented yet
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = ColorCombination(True, {color:0 for color in COLOR_ORDER})
+		self.gems = ColorCombination(True, **{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = ColorCombination({color:0 for color in COST_COLOR_ORDER})
+		self.discounts = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
@@ -135,6 +137,10 @@ class Player(object):
 		# do over thousands of simulations
 		# this is only calculated at the end of the game when all values of Q1, Q3, Q5, and win state can be certain
 		self.extended_output = []
+
+	def set_game(self, game):
+		self.game = game 
+		self.ai.game = game 
 
 
 	def set_decision_weighting(self, weights):
@@ -659,7 +665,7 @@ class Player(object):
 			#can only take 1
 			for color in COST_COLOR_ORDER:
 				if self.game.gems[color] > 0:
-					possibilities.append(ColorCombination({color:1}))
+					possibilities.append(ColorCombination(**{color:1}))
 			return possibilities
 
 		#check all piles that have at least one and all piles with at least 4
@@ -673,11 +679,11 @@ class Player(object):
 					double_colors.add(color)
 				single_colors.add(color)
 		for color in double_colors:
-			possibilities.append(ColorCombination({color:2}))
+			possibilities.append(ColorCombination(**{color:2}))
 		if self.n_gems == 8:
 			if len(single_colors)==1:
 				color = list(single_colors)[0]
-				possibilities.append(ColorCombination({color:1}))
+				possibilities.append(ColorCombination(**{color:1}))
 			else:
 				possibilities += color_combinations(single_colors, 2)
 		else:
@@ -705,9 +711,9 @@ class Player(object):
 		self.n_cards = 0
 		self.n_reserved_cards = 0
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = ColorCombination({color:0 for color in COLOR_ORDER})
+		self.gems = ColorCombination(**{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = ColorCombination({color:0 for color in COST_COLOR_ORDER})
+		self.discounts = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances

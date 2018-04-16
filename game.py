@@ -1,5 +1,6 @@
 from __future__ import print_function
 from player import Player 
+from player import get_phase_parameters
 
 from constants import *
 from copy import copy, deepcopy
@@ -17,6 +18,8 @@ def gem_reduction(n_players):
 	else:
 		return 0
 
+default_decision_weighting = get_phase_parameters(phase=1)
+
 class Game(object):
 	"""
 	TODO: add some game-based hyperparameters that determine 
@@ -24,17 +27,18 @@ class Game(object):
 	in order to make an action
 
 	"""
-	def __init__(self, id, n_players=4, players=None, shuffle_players=True, record_plain_data=False):
+	def __init__(self, id, n_players=4, players=None, shuffle_players=True, record_plain_history=False,
+		decision_weighting=default_decision_weighting, temperature=1):
 		"""
 		id is used for recordkeeping, ideally a counter
 		n_players is the number of players in the game; if players are provided already, then this will revert to their length
 		shuffle_players will shuffle the player order; recommended
-		record_plain_data will record easier-to-understand data for each turn; this increases memory usage dramatically and makes 
+		record_plain_history will record easier-to-understand data for each turn; this increases memory usage dramatically and makes 
 			the program a lot slower, so use it only when debugging or when extracting simulation information for insights
 		"""
 		self.id = id 
-		self.record_plain_data = record_plain_data
-		if self.record_plain_data:
+		self.record_plain_history = record_plain_history
+		if self.record_plain_history:
 			self.plain_history = []
 		else:
 			self.plain_history = None 
@@ -46,7 +50,10 @@ class Game(object):
 				self.shuffle_players()
 		else:
 			self.n_players = n_players
-			self.players = [Player(self, id=i, order=i, record_plain_data=record_plain_data) for i in range(n_players)]
+			self.players = [
+			Player(game=self, id=i, order=i, record_plain_history=record_plain_history,
+				decision_weighting=decision_weighting, temperature=temperature) 
+			for i in range(n_players)]
 		self.turn = -1
 
 		# make sure each player knows where other players are relative to them
@@ -66,7 +73,7 @@ class Game(object):
 			for i, player in enumerate(self.players):
 				self.turn += 1
 				player.take_turn()
-				if self.record_plain_data:
+				if self.record_plain_history:
 					game_data = self.copy_plain_data(player_order=i)
 					player_data = [a_player.copy_plain_data() for a_player in self.players]
 					self.plain_history.append(player_data)
@@ -87,11 +94,15 @@ class Game(object):
 			player.order = i 
 
 	def generate_initial_cards(self):
-		self.tier_1_cards = shuffle(deepcopy(TIER_1_CARDS))
-		self.tier_2_cards = shuffle(deepcopy(TIER_2_CARDS))
-		self.tier_3_cards = shuffle(deepcopy(TIER_3_CARDS))
-
-		self.objectives = shuffle(deepcopy(OBJECTIVE_CARDS))[:self.n_players + 1]
+		self.tier_1_cards = deepcopy(TIER_1_CARDS)
+		self.tier_2_cards = deepcopy(TIER_2_CARDS)
+		self.tier_3_cards = deepcopy(TIER_3_CARDS)
+		shuffle(self.tier_1_cards)
+		shuffle(self.tier_2_cards)
+		shuffle(self.tier_3_cards)
+		objectives = deepcopy(OBJECTIVE_CARDS)
+		shuffle(objectives)
+		self.objectives = objectives[:self.n_players + 1]
 
 		self.available_tier_1_cards = [self.tier_1_cards.pop() for _ in range(4)]
 		self.available_tier_2_cards = [self.tier_2_cards.pop() for _ in range(4)]
