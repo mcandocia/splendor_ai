@@ -128,11 +128,11 @@ def serialize_card(card, allow_hidden=False):
 	# this will return a card that is unknown to other players instead of serializing it
 	# requires allow_hidden=True so one doesn't hide their own cards from themselves
 	if card.get('hidden', False) and allow_hidden:
-		return serialize_card(make_blank(card['tier']))
+		return serialize_card(make_blank_card(card['tier']))
 
 	color_serialization = np.asarray([1*(card['color']==color) for color in COST_COLOR_ORDER])
 	cost_serialization = card['cost'].serialize()
-	point_serialization = np.asarray(card['points'])
+	point_serialization = np.asarray([card['points']])
 	tier_serialization = np.asarray([1*card['tier']==x for x in range(1,4)])
 	# this allows a blank card to input *some* value into the network
 	blank_serialization = np.asarray([card.get('blank_value', 0)])
@@ -168,7 +168,7 @@ def make_blank_card(tier, blank_value=1):
 	}
 	return BLANK_CARD
 
-PURE_BLANK_CARD_SERIALIZATION = serialize_card(make_blank(0, 0))
+PURE_BLANK_CARD_SERIALIZATION = serialize_card(make_blank_card(0, 0))
 
 # a small test case
 # v = ColorCombination(True, gold=3, red=1)

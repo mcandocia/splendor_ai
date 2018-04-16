@@ -57,7 +57,7 @@ NETWORK_HYPERPARAMETERS = {
 }
 
 class SplendorAI(object):
-	def __init__(self, id, game, load_filename=None, **hyperparameters):
+	def __init__(self, id, game, load_params=None, **hyperparameters):
 		"""
 		TODO: generate a keras network that will be used to make predictions for players using this AI
 		if the 
@@ -83,45 +83,35 @@ class SplendorAI(object):
 		)
 
 		self.n_players = len(game.players)
-		self.q_networks = []
-		for q_network_config in self.hyperparameters['output_layers']:
-			q_network = self.initialize_network_layers()
-			q_network = Dense(1, activation='relu')(q_network)
-			q_model = Model(inputs=self.model_inputs, outputs=q_network)
-			q_model.compile(
-				optimizer='rmsprop',
-				loss='mse',
-			)
-			self.q_networks.append(q_model)
 
-		# win network
+		if load_params is not None:
+			model_index = load_params.get('index', 0)
+			model_main_name = load_params.get('name', 'default')
+			self.load_models(main_name = model_main_name, model_index=model_index)
 
-		self.w_network = self.initialize_network_layers()
-		self.w_network = Dense(1, activation='sigmoid')(self.w_network)
-
-		self.win_model = Model(inputs = self.model_inputs, outputs=self.w_network)
-		self.win_model.compile(optimizer='rmsprop',
-			loss='binary_crossentropy',
-			metrics=['accuracy']
-		)
-
-
-		if load_filename is None:
-			pass
 		else:
-			pass
+			self.q_networks = []
+			for q_network_config in self.hyperparameters['output_layers']:
+				q_network = self.initialize_network_layers()
+				q_network = Dense(1, activation='relu')(q_network)
+				q_model = Model(inputs=self.model_inputs, outputs=q_network)
+				q_model.compile(
+					optimizer='rmsprop',
+					loss='mse',
+				)
+				self.q_networks.append(q_model)
 
-	def save_win_network(self):
-		pass
+			# win network
 
-	def load_win_network(self, name=None):
-		pass
+			self.w_network = self.initialize_network_layers()
+			self.w_network = Dense(1, activation='sigmoid')(self.w_network)
 
-	def save_q_network(self, q_index):
-		pass
+			self.win_model = Model(inputs = self.model_inputs, outputs=self.w_network)
+			self.win_model.compile(optimizer='rmsprop',
+				loss='binary_crossentropy',
+				metrics=['accuracy']
+			)
 
-	def load_q_network(self, q_index, name=None):
-		pass
 
 	def initialize_network_layers(self):
 		"""
@@ -269,21 +259,73 @@ class SplendorAI(object):
 
 		return({'win_prediction': win_prediction, 'q_predictions': q_predictions})
 
-
-	def determine_winning_probability(self, state):
-		"""
-		takes in a matrix of possible game states and predicts the probability of winning
-		for each of them
-
-		returns a numpy array of the probabilities
-		"""
-
-	def predict_q_score(self, state, q_lag):
-		"""
-		takes in a matrix of possible game states and estimates the q-score given a certain lag
-		"""
-
-	def save(self, filename):
+	def save_models(self, main_name,  index=0):
 		"""
 		saves the neural network configuration to a file
 		"""
+		for model_name in ['win','Q1','Q3','Q5']:
+			if model_name == 'win':
+				model = self.win_model
+			elif model_name=='Q1':
+				model = self.q_networks[0]
+			elif model_name=='Q3':
+				model = self.q_networks[1]
+			elif model_name=='Q5':
+				model = self.q_networks[2]
+			filename = '{main_name}_{model_name}_{index}.h5'.format(
+				main_name=main_name,
+				model_name=model_name,
+				index=index
+			)
+			print('saving {filename}'.format(filename=filename))
+			model.save(os.path.join(NETWORK_DIRECTORY, filename))
+
+	def load_models(self, main_name, index=0):
+		"""
+		loads model from file
+		"""
+		self.q_networks = [None, None, None]
+
+		for model_name in ['win','Q1','Q3','Q5']:
+			filename = '{main_name}_{model_name}_{index}.h5'.format(
+				main_name=main_name,
+				model_name=model_name,
+				index=index
+			)
+			print('loading {filename}'.format(filename=filename))
+			model = load_model(os.path.join(NETWORK_DIRECTORY, filename))
+			if model_name == 'win':
+				self.win_model = model
+			elif model_name=='Q1':
+				self.q_networks[0] = model
+			elif model_name=='Q3':
+				self.q_networks[1] = model
+			elif model_name=='Q5':
+				self.q_networks[2] = model
+
+	def train_models(self, n_epochs=10, batch_size=1000, verbose=0):
+		for model_name in ['win', 'Q1', 'Q3', 'Q5']:
+			print('training %s model' % model_name)
+			x, y = self.prepare_data(model_name)
+			if model_name == 'win':
+				model = self.win_model
+			elif model_name == 'Q1':
+				model = self.q_networks[0]
+			elif model_name == 'Q3':
+				model = self.q_networks[1]
+			elif model_name == 'Q5':
+				model = self.q_networks[2]
+			model.fit(x, y, epochs=n_epochs, batch_size=batch_size, verbose=verbose)
+
+	def load_extended_history_from_player(self, player):
+		"""
+		note: this is not thread-safe, so this would need to be changed to parallelize in future
+		"""
+		self.extended_serialized_history = player.extended_serialized_history
+		self.lagged_q_state_history = player.lagged_q_state_history
+
+	def prepare_data(self, model_name):
+		x = np.vstack(self.extended_serialized_history)
+		y = np.asarray([row[model_name] for row in self.lagged_q_state_history])
+		return x, y
+			

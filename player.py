@@ -5,6 +5,10 @@ from itertools import zip_longest
 
 import numpy as np 
 
+from ai import NETWORK_HYPERPARAMETERS
+
+q_loadings = NETWORK_HYPERPARAMETERS['output_layers']
+
 """
 uncommon strategies not supported:
 
@@ -80,8 +84,9 @@ def get_phase_parameters(phase):
 		}
 
 class Player(object):
-	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1):
+	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1, record_plain_history=False):
 		self.game = game 
+		# this is important for keeping track of which player has which id
 		self.id = id
 		self.order = order 
 		if ai is not None:
@@ -90,7 +95,9 @@ class Player(object):
 			self.ai = SplendorAI()
 
 		self.points = 0
+		# this should be retrieved via get_phase_parameters()
 		self.decision_weighting=decision_weighting
+		self.record_plain_history = record_plain_history
 		#cards that contribute to cost reduction and points
 		self.owned_cards = []
 		#cards that can be purchased only by player
@@ -108,8 +115,9 @@ class Player(object):
 
 		## describes the history for the current game
 		# this should have a dict of basic game information
-		# describes game state at the beginning of a turn
-		self.plain_state_history = []
+		# describes q state at the beginning of a turn
+		self.q_state_history = []
+		self.lagged_q_state_history = []
 		# describes the actions in plain terms
 		self.plain_action_history = []
 		# these are the raw serializations used for each player in a turn
@@ -119,7 +127,7 @@ class Player(object):
 		#this should be in [[data, win, game_id], ...] format
 		self.extended_serialized_action_history = []
 		self.extended_plain_action_history = []
-		self.extended_plain_state_history = []
+		self.extended_lagged_q_state_history = []
 
 		# this describes the response variable at each time step
 		# this should be of the format [{'win': value, 'Q1': value, 'Q3': value, 'Q5': value}, ...]
@@ -155,6 +163,8 @@ class Player(object):
 		the player takes a turn
 
 		"""
+		self.record_q_state()
+
 		self.make_turn_action()
 
 		self.objective_check()
@@ -181,7 +191,7 @@ class Player(object):
 
 
 
-	def decide_among_options(self, purchasing_options, reserving_options, gem_taking_options):
+	def decide_on_action(self, purchasing_options, reserving_options, gem_taking_options):
 		# determine parameters used to weight the 3 categories amongst themselves, then the options among the categories
 		# first, use group averaging to decide among 3 possible options (if valid) among outcome
 		if purchasing_options is None:
@@ -258,31 +268,20 @@ class Player(object):
 		if action_type is None:
 			print(':-(')
 		elif action_type == 'purchase':
-			self.purchase_available_card(**action_params)
+			self.purchase_card(action_params)
 		elif action_type == 'reserve':
-			pass
+			self.reserve_card(action_params)
 		elif action_type == 'take_gems':
-			pass
+			self.take_gems(action_params['gem_changes'])
+
+
+		# HISTORY UPDATED
+		self.serialized_action_history.append(serialization)
+		if self.record_plain_history:
+			self.plain_action_history.append({'action_type': action_type, 'action_params': action_params})
+
 		
-		# this code no longer applies
-		all_options = purchase_options + reserving_options + gem_taking_options 
-		option = self.determine_best_option(all_options)
-		if option is None:
-			#really shouldn't happen
-			print("PLAYER CANNOT TAKE ACTION")
-			return 1
-		#option[2] is action type
-		if option[2]=='purchase_available_card':
-			self.purchase_available_card(**option[1])
-		elif option[2]=='purchase_reserved_card':
-			self.purchase_reserved_card(**option[1])
-		elif option[2]=='reserve_card_on_top':
-			self.reserve_card_on_top(**option[1])
-		elif option[2]=='reserve_card_on_board':
-			self.reserve_card_on_board(**option[1])
-		elif option[2]=='take_gems':
-			self.take_gems(**option[1])
-		return 0
+		
 
 	"""
 	BELOW ARE SIMULATION FUNCTIONS
@@ -407,12 +406,12 @@ class Player(object):
 			tier_cards = self.game.get_available_cards(tier=tier)
 			for i, card in enumerate(tier_cards):
 				if card is not None:
-					reservation_options.append({'tier':tier, 'position':position, 'type':'board'})
+					reservation_options.append({'tier':tier, 'position':position, 'type':'board', 'card': card})
 
 		# cards on top of deck
 		for tier in [1,2,3]:
 			if len(self.game.get_deck(tier=tier)) > 0:
-				reservation_options.append({'tier':tier, 'position': 0, 'type':'topdeck'})
+				reservation_options.append({'tier':tier, 'position': 0, 'type':'topdeck', 'card':make_blank_card(tier)})
 
 		if len(reservation_options) > 0:
 			gem_changes = [gem_change] * len(reservation_options)
@@ -508,10 +507,11 @@ class Player(object):
 		else:
 			return cost.truncate_negatives() #new_gems = self.gems.make_payment(cost)
 
-	def purchase_card(self, card):
+	def purchase_card(self, action_data):
 		"""
 		this will translate the card input to purchase either available or reserved card functions below
 		"""
+		card = action_data['card_changes']['card']
 		tier = card['tier']
 		position = card['position']
 		if card['type'] == 'reserved':
@@ -519,10 +519,11 @@ class Player(object):
 		elif card['type'] == 'board':
 			self.purchase_available_card(tier=tier, position=position)
 
-	def reserve_card(self, card):
+	def reserve_card(self, action_data):
 		"""
 		this will translate the reserving card input to reserve a card eitehr on board on on top of a deck
 		"""
+		card = action_data['reservation_change']['card']
 		tier = card['tier']
 		position = card['position']
 		if card['type'] == 'topdeck':
@@ -713,7 +714,8 @@ class Player(object):
 
 		#describes the history for the current game
 		# describes game state at the beginning of a turn
-		self.plain_state_history = []
+		self.q_state_history = []
+		self.lagged_q_state_history = []
 		# describes the actions in plain terms
 		self.plain_action_history = []
 		# these are the raw serializations used for each player in a turn
@@ -721,7 +723,7 @@ class Player(object):
 		if reset_extended_history:
 			self.extended_serialized_action_history = []
 			self.extended_plain_action_history = []
-			self.extended_plain_state_history = []
+			self.extended_lagged_q_state_history = []
 
 	# length 59-61 (57 + number of players)
 	def serialize(self, gem_change=None, card_change=None, reservation_change=None, from_own_perspective=True):
@@ -772,7 +774,7 @@ class Player(object):
 		if card_change is not None:
 			card = card_change['card']
 			theoretical_points = card_change['card']['points'] + self.points 
-			if card_change['type'] == 'reserved'
+			if card_change['type'] == 'reserved':
 				reserved_index = card_change['position']
 			else:
 				reserved_index = None
@@ -830,6 +832,70 @@ class Player(object):
 			'self': self_serializations,
 			'game': game_serializations,
 		}
+
+	def copy_plain_data(self):
+		"""
+		the game will use this when recording plain history
+		"""
+		return {
+			'gems': deepcopy(self.gems),
+			'discounts': deepcopy(self.discounts),
+			'cards': deepcopy(self.cards),
+			'objectives': deepcopy(self.objectives),
+			'reserved_cards': deepcopy(self.reserved_cards),
+			'points': copy(self.points),
+			'order': self.order 
+		}
+
+	def record_q_state(self):
+
+		q_state = {
+			v['name']: v['score'] * self.score + v['discount'] * len(self.discounts) + v['gems'] * self.gems.count()
+			for v in q_loadings
+		}
+		self.q_state_history.append(q_state)
+
+
+
+	def record_extended_history(self):
+		# determine win status
+		win_value = self.win * 1
+
+		# retroactively apply Q-scores
+		n_turns = len(self.q_state_history)
+		q1_threshold = n_turns - 1
+		q3_threshold = n_turns - 3
+		q5_threshold = n_turns - 5
+		for i in range(n_turns):
+			data = {}
+			if i <= q1_threshold:
+				data['Q1'] = self.q_state_history[i+1]['Q1']
+			if i <= q3_threshold:
+				data['Q3'] = self.q_state_history[i+3]['Q3']
+			else:
+				data['Q3'] = self.q_state_history[n_turns-1]['Q3']
+			if i <= q5_threshold:
+				data['Q5'] = self.q_state_history[i+5]['Q5']
+			else:
+				data['Q5'] = self.q_state_history[n_turns-1]['Q5']
+			data['win'] = win_value
+			self.lagged_q_state_history.append(data)
+
+		# write extended history
+		self.extended_serialized_action_history.extend(self.serialized_action_history)
+
+		self.extended_lagged_q_state_history.extend(self.lagged_q_state_history)
+
+		# write plain history if applicable
+		if self.record_plain_history:
+			# this needs to be exported elsewhere in order to be useful for anything
+			self.extended_plain_action_history.extend(self.plain_action_history)
+
+	def transfer_history_to_ai(self):
+		self.ai.load_extended_history_from_player(self)
+
+	def copy_ai_from_other_player(self, player, index=0):
+		self.ai.load_
 
 def color_combinations(colors, n):
 	"""

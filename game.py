@@ -24,8 +24,21 @@ class Game(object):
 	in order to make an action
 
 	"""
-	def __init__(self, id, n_players=4, players=None, shuffle_players=True):
+	def __init__(self, id, n_players=4, players=None, shuffle_players=True, record_plain_data=False):
+		"""
+		id is used for recordkeeping, ideally a counter
+		n_players is the number of players in the game; if players are provided already, then this will revert to their length
+		shuffle_players will shuffle the player order; recommended
+		record_plain_data will record easier-to-understand data for each turn; this increases memory usage dramatically and makes 
+			the program a lot slower, so use it only when debugging or when extracting simulation information for insights
+		"""
 		self.id = id 
+		self.record_plain_data = record_plain_data
+		if self.record_plain_data:
+			self.plain_history = []
+		else:
+			self.plain_history = None 
+		self.round=-1
 		if players is not None:
 			self.n_players = len(players)
 			self.players=players 
@@ -33,7 +46,7 @@ class Game(object):
 				self.shuffle_players()
 		else:
 			self.n_players = n_players
-			self.players = [Player(self, id=i, order=i) for i in range(n_players)]
+			self.players = [Player(self, id=i, order=i, record_plain_data=record_plain_data) for i in range(n_players)]
 		self.turn = -1
 
 		# make sure each player knows where other players are relative to them
@@ -49,10 +62,21 @@ class Game(object):
 	#TODO: add methods to append 
 	def run(self):
 		while not self.last_turn:
-			for player in self.players:
+			self.round+=1
+			for i, player in enumerate(self.players):
 				self.turn += 1
 				player.take_turn()
+				if self.record_plain_data:
+					game_data = self.copy_plain_data(player_order=i)
+					player_data = [a_player.copy_plain_data() for a_player in self.players]
+					self.plain_history.append(player_data)
+
 		self.assign_winner()
+		for player in self.players:
+			# allows Q1, Q3, and Q5 to be applied as if a new turn's stats were recorded
+			player.record_q_state()
+			# transfers history to extended history, which can be passed to an AI to train
+			player.record_history()
 
 	def shuffle_players(self):
 		"""
@@ -185,7 +209,16 @@ class Game(object):
 			'turn': turn_serialization + last_turn_serialization, #2
 		}
 		
-
+	def copy_plain_data(self, player_order=None):
+		return {
+			'available_cards': deepcopy(self.available_cards),
+			'gems': deepcopy(self.gems),
+			'objectives': deepcopy(self.objectives),
+			'turn': deepcopy(self.turn),
+			'player_order': player_order,
+			'round': self.round,
+			'id': self.id 
+		}
 
 
 
