@@ -110,7 +110,7 @@ class Player(object):
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
 		self.gems = ColorCombination(True, **{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
+		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
@@ -341,7 +341,7 @@ class Player(object):
 			available_cards = self.game.get_available_cards(tier=tier)
 			deck_cards = self.game.get_deck(tier=tier)
 			can_be_replaced = len(deck_cards) > 0
-			for i, card in available_cards:
+			for i, card in enumerate(available_cards):
 				net_cost = (card['cost'] - self.discount).truncate_negatives()
 				if self.gems.can_pay_for(net_cost):
 					payment_options.append(self.gems.calculate_actual_cost(net_cost))
@@ -371,7 +371,7 @@ class Player(object):
 					purchasing_options.append(card_purchase)
 
 		if len(purchasing_options) > 0:
-			purchasing_serializations = self.full_serialization(
+			purchasing_serializations = self.full_serializations(
 				gem_changes=payment_options,
 				card_changes=purchasing_options,
 			)
@@ -410,7 +410,7 @@ class Player(object):
 		# cards on board
 		for tier in [1,2,3]:
 			tier_cards = self.game.get_available_cards(tier=tier)
-			for i, card in enumerate(tier_cards):
+			for position, card in enumerate(tier_cards):
 				if card is not None:
 					reservation_options.append({'tier':tier, 'position':position, 'type':'board', 'card': card})
 
@@ -421,7 +421,7 @@ class Player(object):
 
 		if len(reservation_options) > 0:
 			gem_changes = [gem_change] * len(reservation_options)
-			reservation_serializations = self.full_serialization(
+			reservation_serializations = self.full_serializations(
 				gem_changes=gem_changes,
 				reservation_changes = reservation_options
 			)
@@ -455,7 +455,7 @@ class Player(object):
 		# determine all combinations
 		gem_combinations = self.take_gems_options()
 		if len(gem_combinations) > 0:
-			gem_serializations = self.full_serialize(gem_changes=gem_combinations)
+			gem_serializations = self.full_serializations(gem_changes=gem_combinations)
 			predictions = self.ai.make_predictions(gem_serializations)
 			return {
 				'predictions': predictions,
@@ -502,7 +502,7 @@ class Player(object):
 		"""
 		this doubles as a boolean check
 		"""
-		cost = card['cost'] - self.discounts
+		cost = card['cost'] - self.discount
 		
 
 		#calculates the surplus of each color for each part of the cost
@@ -546,7 +546,7 @@ class Player(object):
 		#add points
 		self.points+= card['points']
 		#add color # still technically valid with new class
-		self.discounts[card['color']] += 1
+		self.discount[card['color']] += 1
 		#subtract gems
 		self.gems = self.gems.make_payment(card_cost)
 		'''
@@ -572,7 +572,7 @@ class Player(object):
 		#add points
 		self.points+= card['points']
 		#add color
-		self.discounts[card['color']] += 1
+		self.discount[card['color']] += 1
 		#subtract gems
 		self.gems = self.gems.make_payment(card_cost)
 		
@@ -610,7 +610,7 @@ class Player(object):
 		"""
 		possible_objective_ids = []
 		for i, objective in enumerate(self.game.objectives):
-			if self.discounts.can_pay_for(objective):
+			if self.discount.can_pay_for(objective):
 				possible_objective_ids.append(i)
 		if len(possible_objectives) == 0:
 			return 0
@@ -635,7 +635,7 @@ class Player(object):
 		"""
 		if premature, will not compare number of cards and will 
 		"""
-		if self.score >= 15:
+		if self.points >= 15:
 			self.game.last_turn = True
 
 	def take_gems(self, gems):
@@ -713,7 +713,7 @@ class Player(object):
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
 		self.gems = ColorCombination(**{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
-		self.discounts = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
+		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
@@ -807,7 +807,7 @@ class Player(object):
 			'gems': gem_serialization, #6
 			'discount': discount_serialization, #5
 			'points': points_serialization, # 1
-			'reserved_cards': reserved_cards_serializations, # 3 * 15
+			'reserved_cards': reserved_card_serializations, # 3 * 15
 			'order': order_serialization, #2-4 (number of players in the game)
 		}
 
@@ -845,7 +845,7 @@ class Player(object):
 		"""
 		return {
 			'gems': deepcopy(self.gems),
-			'discounts': deepcopy(self.discounts),
+			'discounts': deepcopy(self.discount),
 			'cards': deepcopy(self.cards),
 			'objectives': deepcopy(self.objectives),
 			'reserved_cards': deepcopy(self.reserved_cards),
@@ -856,7 +856,7 @@ class Player(object):
 	def record_q_state(self):
 
 		q_state = {
-			v['name']: v['score'] * self.score + v['discount'] * len(self.discounts) + v['gems'] * self.gems.count()
+			v['name']: v['score'] * self.points + v['discount'] * self.discount.count() + v['gems'] * self.gems.count()
 			for v in q_loadings
 		}
 		self.q_state_history.append(q_state)

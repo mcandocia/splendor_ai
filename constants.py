@@ -70,19 +70,19 @@ class ColorCombination(object):
 		return {color:self[color] for color in self.possible_colors}
 
 	def count(self):
-		return sum([getattr(x, color) for x in self.possible_colors])
+		return sum([getattr(self, color) for color in self.possible_colors])
 
 	def count_nonnegative(self):
 		return sum([getattr(x, color) for x in self.possible_colors  if getattr(x, color) >= 0])
 
 	def truncate_negatives(self):
 		colors = {color:max(0, getattr(self, color)) for color in self.possible_colors}
-		return ColorCombinations(self.uses_gold, **colors)
+		return ColorCombination(self.uses_gold, **colors)
 
 	def keep_only_negatives(self):
 		# used for calculating what needs to be converted to gold
 		colors = {color:min(0, getattr(self, color)) for color in self.possible_colors}
-		return ColorCombinations(self.uses_gold, **colors)
+		return ColorCombination(self.uses_gold, **colors)
 
 	def __copy__(self):
 		colors = {color:getattr(self, color) for color in self.possible_colors}

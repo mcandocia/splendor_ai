@@ -140,8 +140,8 @@ class Game(object):
 		TODO: update player extended histories and assign the proper win (1 or 0) value to the second element of each row
 		"""
 		# score primary objective
-		max_score = max([player.score for player in self.players])
-		highest_scoring_players = [player for player in self.players if player.score==max_score]
+		max_score = max([player.points for player in self.players])
+		highest_scoring_players = [player for player in self.players if player.points==max_score]
 
 		# nobles secondary objective
 		max_objectives = max([len(player.objectives) for player in highest_scoring_players])
