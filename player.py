@@ -23,15 +23,13 @@ purchase something/are more likely to purchase something that may further their 
 
 """
 
-# TODO : ensure that players take turns properly
-# TODO : make sure that proper move configs are passed to serializers
-# TODO : implement AI and neural network structures
-# TODO : make sure that AI-readable history is recorded 
-#        includes Q-lag=1,3,5 (for points) and end-game result
-#        see ticket_ai for examples
-# TODO : make sure that human-readable history can be recorded
-# TODO : make sure that some per-game statistics in human-readable history can be recorded (e.g., starting board state)
 # TODO : test run
+
+def wrap_if_not_list(x):
+	if isinstance(x, (list, tuple)):
+		return x
+	else:
+		return [x]
 
 # used to convert score weighting to positive weights
 def elu(x):
@@ -822,22 +820,37 @@ class Player(object):
 		# for each change combination, get own serialization and board serialization
 		self_serializations = []
 		game_serializations = []
-		for gem_change, card_change, reservation_change in zip_longest(gem_changes, card_changes, reservation_changes):
+		for gem_change, card_change, reservation_change in zip_longest(
+			wrap_if_not_list(gem_changes), 
+			wrap_if_not_list(card_changes), 
+			wrap_if_not_list(reservation_changes)):
 
 			self_serializations.append(self.serialize(gem_change=gem_change, card_change=card_change))
 
-			game_serializations.append(self.game.serialize(
-				gem_change=gem_change, 
-				card_change=None, 
-				reservation_change=reservation_change)
+			game_serializations.append(
+				self.game.serialize(
+					gem_change=gem_change, 
+					available_card_change=None, 
+					reservation_change=reservation_change
+				)
 			)
 
 		# return those values, which will be ready to be consumed by neural network input
+		return [
+		    {
+		    	'other_players': other_player_serializations,
+		    	'self': self_serialization,
+		    	'game': game_serialization
+		    } 
+		    for self_serialization, game_serialization in zip(self_serializations, game_serializations)
+		]
+		'''
 		return {
 			'other_players': other_player_serializations,
 			'self': self_serializations,
 			'game': game_serializations,
 		}
+		'''
 
 	def copy_plain_data(self):
 		"""

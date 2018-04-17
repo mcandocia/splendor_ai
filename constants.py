@@ -121,7 +121,7 @@ class ColorCombination(object):
 		return difference
 
 	def serialize(self):
-		return np.asarray([getattr(self, color) for color in self.possible_colors])
+		return np.asarray([1*getattr(self, color) for color in self.possible_colors])
 
 #length = 15
 def serialize_card(card, allow_hidden=False):
@@ -133,9 +133,9 @@ def serialize_card(card, allow_hidden=False):
 	color_serialization = np.asarray([1*(card['color']==color) for color in COST_COLOR_ORDER])
 	cost_serialization = card['cost'].serialize()
 	point_serialization = np.asarray([card['points']])
-	tier_serialization = np.asarray([1*card['tier']==x for x in range(1,4)])
+	tier_serialization = np.asarray([1*(card['tier']==x) for x in range(1,4)])
 	# this allows a blank card to input *some* value into the network
-	blank_serialization = np.asarray([card.get('blank_value', 0)])
+	blank_serialization = np.asarray([1*card.get('blank_value', 0)])
 	return np.concatenate((
 		color_serialization, 
 		cost_serialization, 
@@ -208,7 +208,7 @@ def LOAD_CARDS():
 			data = {
 			'tier':row[0],
 			'color':row[1],
-			'points':row[2],
+			'points':int(row[2]),
 			'cost_':{
 				color:int_or_zero(value) for color, value in 
 				zip(['black','white','red','blue','green'],

@@ -4,6 +4,8 @@ from keras.layers import Input, Dense
 from keras.models import Model 
 from keras.models import load_model
 
+import numpy as np 
+
 from copy import copy, deepcopy
 from itertools import chain
 import os
@@ -205,9 +207,10 @@ class SplendorAI(object):
 		"""
 
 		# player inputs, game input, game objectives, player reserved, game cards
+		# print(input)
 		self_raw_input = np.concatenate([input['self'][k] for k in ['gems','discount','points','order']])
 
-		self_reserved_input = np.concatenate(input['self']['reserved'])
+		self_reserved_input = np.concatenate(input['self']['reserved_cards'])
 
 		player_raw_inputs = np.concatenate(
 			[
@@ -215,14 +218,15 @@ class SplendorAI(object):
 					[
 						serializations[k] for k in ['gems','discount','points','order']
 					]
-					for serializations in input['other_players']
 				)
+				for serializations in input['other_players']
+				
 			]
 		)
 
 		player_reserved_inputs = np.concatenate(
 			[
-				np.concatenate(player_input['reserved'])
+				np.concatenate(player_input['reserved_cards'])
 				for player_input in input['other_players']
 			]
 		)
@@ -234,12 +238,12 @@ class SplendorAI(object):
 		game_objective_input = np.concatenate(input['game']['objectives'])
 
 		game_card_input = np.concatenate(
-			[np.concatenate(input['available_cards'][tier-1] for tier in [1,2,3])]
+			[np.concatenate(input['game']['available_cards'][tier-1]) for tier in [1,2,3]]
 		)
 
 		# combine all input
 
-		return np.concatenate(
+		return np.concatenate([
 			self_raw_input,
 			player_raw_inputs,
 			game_raw_input,
@@ -247,10 +251,11 @@ class SplendorAI(object):
 			self_reserved_input,
 			player_reserved_inputs,
 			game_card_input
+			]
 		)
 
 	def make_predictions(self, inputs):
-		network_inputs = np.vstack([map_game_input_to_network_inputs(input) for input in inputs])
+		network_inputs = np.vstack([self.map_game_input_to_network_inputs(input) for input in inputs])
 
 		win_prediction = self.win_model.predict(network_inputs)[:,0]
 		q_predictions = []
