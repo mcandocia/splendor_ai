@@ -60,7 +60,7 @@ class Game(object):
 		for player in self.players:
 			player.reset()
 			player.game = self 
-			
+
 		for player in self.players:
 			player.get_other_players()
 			
@@ -195,7 +195,11 @@ class Game(object):
 			difference = 4 - len(tier_2_cards_serialization)
 			tier_2_cards_serialization += [PURE_BLANK_CARD_SERIALIZATION] * difference
 
+		# ACTUALLY POSSIBLE; BELOW LEFT FOR HUMILITY OF FUTURE SELF
 		# not possible with tier 3 cards to end up with no cards left
+		if len(tier_3_cards_serialization) < 4:
+			difference = 4 - len(tier_3_cards_serialization)
+			tier_3_cards_serialization += [PURE_BLANK_CARD_SERIALIZATION] * difference
 
 		# make an adjustment to one of the row serializations if the reservation change is not null
 		if reservation_change is not None:
