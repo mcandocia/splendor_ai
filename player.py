@@ -445,6 +445,7 @@ class Player(object):
 				gem_changes=gem_changes,
 				reservation_changes = reservation_options
 			)
+			# print(reservation_serializations)
 
 			predictions = self.ai.make_predictions(reservation_serializations)
 			return {
@@ -468,12 +469,12 @@ class Player(object):
 		 list of
 		  [prob, action_kwargs, action_type]
 		"""
-		# skip if has 10 gems
+		# if no gems, provide an out in case no moves can be made
 		if self.game.gems.count_nongold() == 0:
-			return None
-
-		# determine all combinations
-		gem_combinations = self.take_gems_options()
+			gem_combinations = [ColorCombination(True)]
+		else:
+			# determine all combinations
+			gem_combinations = self.take_gems_options()
 		if len(gem_combinations) > 0:
 			gem_serializations = self.full_serializations(gem_changes=gem_combinations)
 			predictions = self.ai.make_predictions(gem_serializations)
@@ -605,7 +606,7 @@ class Player(object):
 			self.owned_cards.append(card)
 			#add new card, display warning if deck is empty
 			new_card_added = self.game.add_top_card_to_available(tier)
-			if not new_card_added:
+			if not new_card_added and False:
 				print("WARNING: tier %s deck ran empty!" % tier)
 
 	def purchase_reserved_card(self,  position, move_cards=True):
@@ -767,8 +768,8 @@ class Player(object):
 		#faster way of keeping track of cards
 		self.n_cards = 0
 		self.n_reserved_cards = 0
-		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = ColorCombination(use_gold=True, **{color:0 for color in COLOR_ORDER})
+		self.n_reserved_cards_tiers = [0 for i in range(3)]
+		self.gems = ColorCombination(uses_gold=True, **{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
 		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
@@ -808,7 +809,8 @@ class Player(object):
 			theoretical_gems = self.gems 
 
 		gem_serialization = theoretical_gems.serialize()
-
+		# print(self.gems.uses_gold)
+		# print(self.gems.serialize())
 		# card changes
 		reserved_card_serializations = [
 			serialize_card(card, not from_own_perspective)
@@ -859,7 +861,11 @@ class Player(object):
 		# order serialization to enforce symmetry requirements
 		order_serialization = np.zeros(4)
 		order_serialization[self.order] = 1.
-
+		# print('-----')
+		# print(gem_serialization)
+		# print(discount_serialization)
+		# print(points_serialization)
+		# print(order_serialization)
 		return {
 			'gems': gem_serialization, #6
 			'discount': discount_serialization, #5
@@ -944,7 +950,7 @@ class Player(object):
 		q1_threshold = n_turns - 2
 		q3_threshold = n_turns - 4
 		q5_threshold = n_turns - 6
-		for i in range(n_turns):
+		for i in range(n_turns-1):
 			data = {}
 			if i <= q1_threshold:
 				data['Q1'] = self.q_state_history[i+1]['Q1']

@@ -332,8 +332,8 @@ class SplendorAI(object):
 		"""
 		note: this is not thread-safe, so this would need to be changed to parallelize in future
 		"""
-		self.extended_serialized_history = player.extended_serialized_history
-		self.lagged_q_state_history = player.lagged_q_state_history
+		self.extended_serialized_history = player.extended_serialized_action_history
+		self.lagged_q_state_history = player.extended_lagged_q_state_history
 
 	def prepare_data(self, model_name):
 		x_unstacked = [self.map_game_input_to_network_inputs(row) for row in self.extended_serialized_history] #np.vstack(self.extended_serialized_history)

@@ -58,7 +58,12 @@ class Game(object):
 
 		# make sure each player knows where other players are relative to them
 		for player in self.players:
+			player.reset()
+			player.game = self 
+			
+		for player in self.players:
 			player.get_other_players()
+			
 
 		self.generate_initial_cards()
 		#self.gems = {color:COLOR_STOCKPILE_AMOUNT - (4-self.n_players) for color in COLOR_ORDER}
