@@ -72,7 +72,9 @@ class Game(object):
 			self.round+=1
 			for i, player in enumerate(self.players):
 				self.turn += 1
+				player.active_turn=True
 				player.take_turn()
+				player.active_turn=False
 				if self.record_plain_history:
 					game_data = self.copy_plain_data(player_order=i)
 					player_data = [a_player.copy_plain_data() for a_player in self.players]
@@ -83,7 +85,7 @@ class Game(object):
 			# allows Q1, Q3, and Q5 to be applied as if a new turn's stats were recorded
 			player.record_q_state()
 			# transfers history to extended history, which can be passed to an AI to train
-			player.record_history()
+			player.record_extended_history()
 
 	def shuffle_players(self):
 		"""
@@ -178,6 +180,18 @@ class Game(object):
 		tier_2_cards_serialization = [serialize_card(card) for card in self.available_tier_2_cards]
 		tier_3_cards_serialization = [serialize_card(card) for card in self.available_tier_3_cards]
 
+		# add blank cards if serializations are too short
+
+		if len(tier_1_cards_serialization) < 4:
+			difference = 4 - len(tier_1_cards_serialization)
+			tier_1_cards_serialization += [PURE_BLANK_CARD_SERIALIZATION] * difference
+
+		if len(tier_2_cards_serialization) < 4:
+			difference = 4 - len(tier_2_cards_serialization)
+			tier_2_cards_serialization += [PURE_BLANK_CARD_SERIALIZATION] * difference
+
+		# not possible with tier 3 cards to end up with no cards left
+
 		# make an adjustment to one of the row serializations if the reservation change is not null
 		if reservation_change is not None:
 			if reservation_change['type'] == 'board':
@@ -208,6 +222,9 @@ class Game(object):
 
 		# objectives serializations
 		objectives_serializations = [serialize_objective(objective) for objective in self.objectives]
+		if len(objectives_serializations) < self.n_players + 1:
+			difference = self.n_players + 1 - len(objectives_serializations)
+			objectives_serializations += [ColorCombination().serialize()] * difference
 
 		# turn and last turn
 		turn_serialization = [np.asarray(self.turn)]
@@ -219,6 +236,9 @@ class Game(object):
 			'objectives': objectives_serializations, # (3-5) x 5
 			'turn': turn_serialization + last_turn_serialization, #2
 		}
+
+	def __str__(self):
+		return 'GAME PLAYERS:\n' + '\n'.join([str(player) for player in self.players])
 		
 	def copy_plain_data(self, player_order=None):
 		return {

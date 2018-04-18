@@ -16,6 +16,9 @@ os.makedirs(NETWORK_DIRECTORY, exist_ok=True)
 # funnel layers are layers that can be shared that convert a block of data to some other representation
 # it is similar to word2vec
 
+def lchain(x):
+	return list(chain(*x))
+
 # constants to define; default
 NETWORK_HYPERPARAMETERS = {
 	# player input
@@ -79,11 +82,11 @@ class SplendorAI(object):
 		self.game_cards_inputs = [[Input(shape=(15,)) for position in range(4)] for tier in range(3)]
 
 		self.model_inputs =  (
-			self.player_inputs + 
-			[self.game_inputs] +
-			self.game_objective_inputs + 
-			list(chain(*self.reserved_inputs)) +
-			list(chain(*self.game_cards_inputs))
+			self.player_inputs + # 4
+			[self.game_inputs] + # 1
+			self.game_objective_inputs + # 1 + n_players (3-5) 
+			lchain(self.reserved_inputs) + # 12
+			lchain(self.game_cards_inputs) # 12
 		)
 
 		if load_params is not None:
@@ -208,59 +211,62 @@ class SplendorAI(object):
 
 		# player inputs, game input, game objectives, player reserved, game cards
 		# print(input)
-		self_raw_input = np.concatenate([input['self'][k] for k in ['gems','discount','points','order']])
+		"""
+			self.model_inputs =  (
+			self.player_inputs + # 4
+			[self.game_inputs] + # 1
+			self.game_objective_inputs + # 1 + n_players (3-5) 
+			lchain(self.reserved_inputs) + # 12
+			lchain(self.game_cards_inputs) # 12
+		)
+		"""
+		self_raw_input = [np.concatenate([input['self'][k] for k in ['gems','discount','points','order']])]
 
-		self_reserved_input = np.concatenate(input['self']['reserved_cards'])
+		self_reserved_input = input['self']['reserved_cards']
 
-		player_raw_inputs = np.concatenate(
-			[
-				np.concatenate(
-					[
-						serializations[k] for k in ['gems','discount','points','order']
-					]
-				)
-				for serializations in input['other_players']
+		player_raw_inputs = [
+			
+			np.concatenate(
+				[
+					serializations[k] for k in ['gems','discount','points','order']
+				]
+			)
+			for serializations in input['other_players']
 				
-			]
-		)
+		]
+		
 
-		player_reserved_inputs = np.concatenate(
-			[
-				np.concatenate(player_input['reserved_cards'])
-				for player_input in input['other_players']
-			]
-		)
+		player_reserved_inputs = lchain([x['reserved_cards'] for x in input['other_players']])
 
-		game_raw_input = np.concatenate(
-			[input['game'][k] for k in ['gems','turn']] # note that the turn number + last turn is in the 'turn' key
-		)
+		game_raw_input = [np.concatenate([
+			input['game'][k] for k in ['gems','turn']
+		])
+		] # note that the turn number + last turn is in the 'turn' key
+		
 
-		game_objective_input = np.concatenate(input['game']['objectives'])
+		game_objective_input = input['game']['objectives']
 
-		game_card_input = np.concatenate(
-			[np.concatenate(input['game']['available_cards'][tier-1]) for tier in [1,2,3]]
-		)
+		game_card_input = lchain(input['game']['available_cards'])
 
-		# combine all input
-
-		return np.concatenate([
-			self_raw_input,
-			player_raw_inputs,
-			game_raw_input,
-			game_objective_input,
-			self_reserved_input,
-			player_reserved_inputs,
+		return (
+			self_raw_input + player_raw_inputs +
+			game_raw_input +
+			game_objective_input + 
+			self_reserved_input + player_reserved_inputs +
 			game_card_input
-			]
 		)
+
 
 	def make_predictions(self, inputs):
-		network_inputs = np.vstack([self.map_game_input_to_network_inputs(input) for input in inputs])
+		unstacked_network_inputs = [self.map_game_input_to_network_inputs(input) for input in inputs]
+		# each entry of the above list is a list of numpy arrays
+		stacked_network_inputs = [np.vstack(input_array) for input_array in zip(*unstacked_network_inputs)]
 
-		win_prediction = self.win_model.predict(network_inputs)[:,0]
-		q_predictions = []
-		for i, q_index in enumerate(self.self.hyperparameters['output_layers']):
-			q_predictions[i] = self.q_networks[i].predict(network_inputs)[:,0]
+		win_prediction = self.win_model.predict(stacked_network_inputs)[:,0]
+		q_predictions = [None for _ in self.q_networks]
+
+		for i, q_index in enumerate(self.hyperparameters['output_layers']):
+			q_predictions[i] = self.q_networks[i].predict(stacked_network_inputs)[:,0]
 
 		return({'win_prediction': win_prediction, 'q_predictions': q_predictions})
 
@@ -330,7 +336,8 @@ class SplendorAI(object):
 		self.lagged_q_state_history = player.lagged_q_state_history
 
 	def prepare_data(self, model_name):
-		x = np.vstack(self.extended_serialized_history)
+		x_unstacked = [self.map_game_input_to_network_inputs(row) for row in self.extended_serialized_history] #np.vstack(self.extended_serialized_history)
+		x = [np.vstack(input_array) for input_array in zip(*x_unstacked)]
 		y = np.asarray([row[model_name] for row in self.lagged_q_state_history])
 		return x, y
 			

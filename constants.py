@@ -31,7 +31,8 @@ class ColorCombination(object):
 	def __add__(self, c2):
 		colors = {}
 		for color in self.possible_colors:
-			colors[color] = getattr(self, color) + getattr(c2, color)
+			# 0 should only be in the case of gold when discounts and gems are added
+			colors[color] = getattr(self, color) + getattr(c2, color, 0)
 
 		return ColorCombination(self.uses_gold or c2.uses_gold, **colors)
 
@@ -66,11 +67,23 @@ class ColorCombination(object):
 	def __repr__(self):
 		return 'ColorCombination object: \n' + str(self)
 
+	def as_tuple(self):
+		return tuple([getattr(self, color) for color in self.possible_colors])
+
+	def expand(self):
+		e = []
+		for color in self.possible_colors:
+			e.extend([color] * getattr(self, color))
+		return e
+
 	def as_dict(self):
 		return {color:self[color] for color in self.possible_colors}
 
 	def count(self):
 		return sum([getattr(self, color) for color in self.possible_colors])
+
+	def count_nongold(self):
+		return sum([getattr(self, color) for color in self.possible_colors if color != 'gold'])
 
 	def count_nonnegative(self):
 		return sum([getattr(x, color) for x in self.possible_colors  if getattr(x, color) >= 0])
@@ -94,14 +107,20 @@ class ColorCombination(object):
 	def can_pay_for(self, c2):
 		difference = c2 - self
 		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
-		return self.gold >= net_shortfall
+		if self.uses_gold:
+			return self.gold >= net_shortfall
+		else:
+			return net_shortfall == 0
 
 	def calculate_actual_cost(self, c2):
 		# get actual cost; used after can_pay_for() returns True
 		difference = c2 - self
 		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
-		cost = ONE_GOLD * net_shortfall + (c2 + difference.keep_only_negatives())
+		cost = ONE_GOLD * net_shortfall + (c2 - difference.truncate_negatives())
 		return cost
+
+	def has_any_negatives(self):
+		return any([getattr(self, color) < 0 for color in self.possible_colors])
 
 	def make_payment(self, c2):
 		"""
@@ -110,8 +129,8 @@ class ColorCombination(object):
 		"""
 		difference = self - c2
 		#print(difference)
-		net_shortfall = sum([max(0, -getattr(difference, color)) for color in COST_COLOR_ORDER])
-		print('net shortfall ', net_shortfall)
+		net_shortfall = sum([max(0, getattr(difference, color)) for color in COST_COLOR_ORDER])
+		# print('net shortfall ', net_shortfall)
 		if net_shortfall > 0:
 			difference.gold -= net_shortfall
 			for color in difference.possible_colors:
@@ -122,6 +141,12 @@ class ColorCombination(object):
 
 	def serialize(self):
 		return np.asarray([1*getattr(self, color) for color in self.possible_colors])
+
+def convert_tuple_to_color_combination(tup):
+	if len(tup) == 5:
+		return ColorCombination(**{COST_COLOR_ORDER[i]:tup[i] for i in range(5)})
+	else:
+		return ColorCombination(True, **{COLOR_ORDER[i]:tup[i] for i in range(6)})	
 
 #length = 15
 def serialize_card(card, allow_hidden=False):
@@ -206,7 +231,7 @@ def LOAD_CARDS():
 		next(f)
 		for row in reader:
 			data = {
-			'tier':row[0],
+			'tier': int(row[0]),
 			'color':row[1],
 			'points':int(row[2]),
 			'cost_':{

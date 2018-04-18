@@ -2,6 +2,8 @@ from __future__ import print_function
 from constants import * 
 from itertools import combinations
 from itertools import zip_longest
+from itertools import product
+from collections import Counter
 
 import numpy as np 
 
@@ -95,7 +97,13 @@ class Player(object):
 
 		self.points = 0
 		# this should be retrieved via get_phase_parameters()
-		self.decision_weighting=decision_weighting
+		if decision_weighting is None:
+			self.decision_weighting = get_phase_parameters(1)
+		else:
+			self.decision_weighting=decision_weighting
+
+		self.temperature = temperature
+
 		self.record_plain_history = record_plain_history
 		#cards that contribute to cost reduction and points
 		self.owned_cards = []
@@ -105,7 +113,7 @@ class Player(object):
 		self.n_cards = 0
 		self.n_reserved_cards = 0
 		# updating this isn't implemented yet
-		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
+		self.n_reserved_cards_tiers = [0 for _ in range(3)]
 		self.gems = ColorCombination(True, **{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
 		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
@@ -187,10 +195,15 @@ class Player(object):
 			choice = np.argmax(score)
 		else:
 			score = np.exp(score/self.temperature)
-		choice = np.choice.random(
+		choice = np.random.choice(
 			np.arange(len(score)),
 			p=score/np.sum(score)
 		)
+		# worst-case scenario with probability fudging
+		if score[choice] < -1e50:
+			for i in range(3):
+				if score[i] > -1e50:
+					return i
 		return choice
 
 
@@ -198,20 +211,28 @@ class Player(object):
 	def decide_on_action(self, purchasing_options, reserving_options, gem_taking_options):
 		# determine parameters used to weight the 3 categories amongst themselves, then the options among the categories
 		# first, use group averaging to decide among 3 possible options (if valid) among outcome
+
+		if False:
+			print(type(purchasing_options))
+			print(type(reserving_options))
+			print(type(gem_taking_options))
 		if purchasing_options is None:
-			purchasing_weight = 0
+			purchasing_weight = -1e100
 		else:
-			purchasing_weight = np.max(purchasing_options['score'])
+			purchasing_scores = purchasing_options['score'] # [option['score'] for option in purchasing_options]
+			purchasing_weight = np.max(purchasing_scores)
 
 		if reserving_options is None:
-			reserving_weight = 0
+			reserving_weight = -1e100
 		else:
-			reserving_weight = np.max(purchasing_options['score'])
+			reserving_scores = reserving_options['score'] # [option['score'] for option in reserving_options]
+			reserving_weight = np.max(reserving_scores)
 
 		if gem_taking_options is None:
-			gem_taking_weight = 0
+			gem_taking_weight = -1e100
 		else:
-			gem_taking_weight = np.max(purchasing_options['score'])
+			gem_scores = gem_taking_options['score'] # [option['score'] for option in gem_taking_options]
+			gem_taking_weight = np.max(gem_scores)
 
 		if purchasing_weight + reserving_weight + gem_taking_weight==0:
 			print("WARNING: NO ACTIONS CAN BE TAKEN!")
@@ -220,9 +241,10 @@ class Player(object):
 		action = ['purchase','reserve','take_gems'][self.make_choice(
 			np.asarray([purchasing_weight, reserving_weight, gem_taking_weight])
 		)]
+		#print(action)
 
 		if action=='purchase':
-			which_purchase = self.make_choice(purchasing_options['score'])
+			which_purchase = self.make_choice(purchasing_scores)
 			serialization = purchasing_options['serializations'][which_purchase]
 			return (
 				action, 
@@ -233,23 +255,23 @@ class Player(object):
 				serialization
 			)
 		elif action=='reserve':
-			which_reserve = self.make_choice(reserving_options['score'])
-			serialization = gem_taking_options['serializations'][which_gems]
+			which_reserve = self.make_choice(reserving_scores)
+			serialization = reserving_options['serializations'][which_reserve]
 			return (
 				action, 
 				{
-					'reserving_changes': reserving_options['actions']['card_changes'][which_reserve],
+					'reservation_changes': reserving_options['actions']['reservation_changes'][which_reserve],
 					'gem_changes': reserving_options['actions']['gem_changes'][which_reserve],
 				}, 
 				serialization,
 			)
 		elif action=='take_gems':
-			which_gems = self.make_choice(gem_taking_options['score'])
+			which_gems = self.make_choice(gem_scores)
 			serialization = gem_taking_options['serializations'][which_gems]
 			return (
 				action, 
 				{
-					'gem_changes': reserving_options['actions']['gem_changes'][which_gems]
+					'gem_changes': gem_taking_options['actions']['gem_changes'][which_gems]
 				}, 
 				serialization
 			)
@@ -310,15 +332,15 @@ class Player(object):
 	"""
 
 	def calculate_score(self, predictions):
-		win_predictions = predictions['win_predictions']
+		win_prediction = predictions['win_prediction']
 		Q1_prediction = predictions['q_predictions'][0]
 		Q3_prediction = predictions['q_predictions'][1]
 		Q5_prediction = predictions['q_predictions'][2]
 		score = (
-			(win_predictions * 15) * self.decision_weighting['win'] + 
+			(win_prediction * 15) * self.decision_weighting['win'] + 
 			Q1_prediction * self.decision_weighting['Q1'] + 
 			Q3_prediction * self.decision_weighting['Q3'] + 
-			Q5_prediction * self.decision_weigthing['Q5']
+			Q5_prediction * self.decision_weighting['Q5']
 		)
 		return score
 
@@ -396,7 +418,7 @@ class Player(object):
 		"""
 		# skip if 3 cards already reserved
 		if len(self.reserved_cards) == 3:
-			return []
+			return None
 
 		# cannot get gold if none exists or you have 10 gems
 		if self.game.gems.gold==0 or self.gems.count() == 10:
@@ -447,8 +469,8 @@ class Player(object):
 		  [prob, action_kwargs, action_type]
 		"""
 		# skip if has 10 gems
-		if self.gems.count() == 10:
-			return []
+		if self.game.gems.count_nongold() == 0:
+			return None
 
 		# determine all combinations
 		gem_combinations = self.take_gems_options()
@@ -517,23 +539,27 @@ class Player(object):
 		"""
 		card = action_data['card_changes']['card']
 		tier = card['tier']
-		position = card['position']
-		if card['type'] == 'reserved':
+		position = action_data['card_changes']['position']
+		purchase_type = action_data['card_changes']['type']
+		if purchase_type == 'reserved':
 			self.purchase_reserved_card(position=position)
-		elif card['type'] == 'board':
+		elif purchase_type == 'board':
 			self.purchase_available_card(tier=tier, position=position)
 
 	def reserve_card(self, action_data):
 		"""
 		this will translate the reserving card input to reserve a card eitehr on board on on top of a deck
 		"""
-		card = action_data['reservation_change']['card']
+		card = action_data['reservation_changes']['card']
 		tier = card['tier']
-		position = card['position']
-		if card['type'] == 'topdeck':
+		position = action_data['reservation_changes']['position']
+		reserve_type = action_data['reservation_changes']['type']
+		if reserve_type == 'topdeck':
 			self.reserve_card_on_top(tier=tier)
-		elif card['type'] == 'board':
+		elif reserve_type == 'board':
 			self.reserve_card_on_board(tier=tier, position=position)
+		self.n_reserved_cards += 1
+		self.n_reserved_cards_tiers[card['tier']-1] += 1
 
 	def purchase_available_card(self, tier, position, move_cards=True):
 		"""
@@ -541,12 +567,33 @@ class Player(object):
 		"""
 		card = self.get_available_cards(tier).pop(position)
 		card_cost = self.card_purchasing_cost(card)
+		actual_card_cost = ((self.gems + self.discount).calculate_actual_cost(card['cost'])-self.discount).truncate_negatives()
+		original_discount_and_gems = self.discount + self.gems
 		#add points
 		self.points+= card['points']
 		#add color # still technically valid with new class
 		self.discount[card['color']] += 1
 		#subtract gems
-		self.gems = self.gems.make_payment(card_cost)
+		original_gems = self.gems.__copy__()
+		self.gems = self.gems-actual_card_cost#self.gems.make_payment(card_cost)
+		self.game.gems+=actual_card_cost
+		if self.gems.has_any_negatives() or self.game.gems.has_any_negatives():
+			print(card)
+			print('current')
+			print(self.gems)
+			print('original')
+			print(original_gems)
+			print('original gems and discount')
+			print(original_discount_and_gems)
+			#print('game')
+			#print(self.game.gems)
+			print('cost')
+			print(card_cost)
+			print('actual cost')
+			print(actual_card_cost)
+			raise ValueError('unexpected negative')
+
+		self.n_gems = self.gems.count()
 		'''
 		for color, amount in card_cost.iteritems():
 			self.gems[color] -= amount 
@@ -561,42 +608,46 @@ class Player(object):
 			if not new_card_added:
 				print("WARNING: tier %s deck ran empty!" % tier)
 
-	def purchase_reserved_card(self,  position):
+	def purchase_reserved_card(self,  position, move_cards=True):
+		# dunno why I have move_cards variable
 		if move_cards:
 			card = self.reserved_cards.pop(position)
 		else:
 			card = self.reserved_cards[position]
 		card_cost = self.card_purchasing_cost(card)
+		actual_card_cost = ((self.gems + self.discount).calculate_actual_cost(card['cost'])-self.discount).truncate_negatives()
 		#add points
 		self.points+= card['points']
 		#add color
 		self.discount[card['color']] += 1
 		#subtract gems
-		self.gems = self.gems.make_payment(card_cost)
+		self.gems = self.gems-actual_card_cost
+		self.game.gems+=actual_card_cost
+		self.n_gems = self.gems.count()
 		
 		#add card to inventory
 		self.n_cards += 1
 		if move_cards:
 			self.owned_cards.append(card)
-		self.n_reserved_cards -=1
-		self.n_reserved_cards_tiers[card['tier']] -= 1
+		self.n_reserved_cards -= 1
+		self.n_reserved_cards_tiers[card['tier']-1] -= 1
 
 	def reserve_card_on_top(self, tier, move_cards=True):
-		self.n_reserved_cards += 1
+		# self.n_reserved_cards += 1
 		if move_cards:
 			self.reserved_cards.append(self.game.get_deck(tier).pop())
-		self.n_reserved_cards_tiers[tier] += 1
-		if self.n_gems < 10 and game.gems['gold'] > 0:
-			self.take_gems({'gold':1})
+		self.n_reserved_cards_tiers[tier-1] += 1
+		if self.n_gems < 10 and self.game.gems['gold'] > 0:
+			self.take_gems(ColorCombination(True, **{'gold':1}))
 		return 0
 
 	def reserve_card_on_board(self, tier, position):
-		self.n_reserved_cards += 1
+		# self.n_reserved_cards += 1
 		self.reserved_cards.append(self.game.get_available_cards(tier).pop(position))
 		self.game.add_top_card_to_available(tier)
-		self.n_reserved_cards_tiers[tier] += 1
-		if self.n_gems < 10 and game.gems['gold'] > 0:
-			self.take_gems({'gold':1})
+		self.n_reserved_cards_tiers[tier-1] += 1
+		if self.n_gems < 10 and self.game.gems['gold'] > 0:
+			self.take_gems(ColorCombination(True, **{'gold':1}))
 		return 0 
 
 	def objective_check(self):
@@ -610,24 +661,24 @@ class Player(object):
 		for i, objective in enumerate(self.game.objectives):
 			if self.discount.can_pay_for(objective):
 				possible_objective_ids.append(i)
-		if len(possible_objectives) == 0:
+		if len(possible_objective_ids) == 0:
 			return 0
-		elif len(possible_objectives) == 1:
+		elif len(possible_objective_ids) == 1:
 			self.points+=3 
-			self.objectives.append(self.game.objectives.pop(possible_objectives[0]))
+			self.objectives.append(self.game.objectives.pop(possible_objective_ids[0]))
 		else:
 			objective_id = self.decide_on_objective(possible_objective_ids)
 			self.points+=3
 			self.objectives.append(self.game.objectives.pop(objective_id))	
 		return 1
 
-	#TODO
 	def decide_on_objective(self, possible_objectives):
 		"""
 		MEH METHOD: randomly choose an objective
 		AI METHOD: forecast all possibilities (3 at most, but most likely 2) and choose the one that most likely results in winning
 		DERIVED METHOD: check to see if any other players are within a turn of getting the other card; not 100% exact bc of reserved cards, and might be tedious
 		"""
+		return np.random.choice(possible_objectives)
 
 	def victory_check(self):
 		"""
@@ -643,6 +694,7 @@ class Player(object):
 		"""
 		self.gems = self.gems + gems
 		self.game.gems = self.game.gems - gems 
+		self.n_gems += gems.count()
 		'''
 		for color, amount in gems.iteritems():
 			self.gems[color] += amount
@@ -652,23 +704,9 @@ class Player(object):
 		'''
 
 	def take_gems_options(self):
+
+
 		# returns a list of ColorCombination objects
-
-		# will not update
-		possibilities = []
-		if self.n_gems == 10:
-			return []
-		elif self.n_gems == 9:
-			#check all piles that have at least one
-			#can only take 1
-			for color in COST_COLOR_ORDER:
-				if self.game.gems[color] > 0:
-					possibilities.append(ColorCombination(**{color:1}))
-			return possibilities
-
-		#check all piles that have at least one and all piles with at least 4
-		#can only take 2 from >=4 or 1 from any 2 if player has 8 gems
-		#otherwise no additional restrictions
 		single_colors = set()
 		double_colors = set()
 		for color in COST_COLOR_ORDER:
@@ -676,23 +714,44 @@ class Player(object):
 				if self.game.gems[color] > 3:
 					double_colors.add(color)
 				single_colors.add(color)
+
+		positive_possibilities = []
+
 		for color in double_colors:
-			possibilities.append(ColorCombination(**{color:2}))
-		if self.n_gems == 8:
-			if len(single_colors)==1:
-				color = list(single_colors)[0]
-				possibilities.append(ColorCombination(**{color:1}))
-			else:
-				possibilities += color_combinations(single_colors, 2)
+			positive_possibilities.append(ColorCombination(True, **{color:2}))
+
+		if len(single_colors)==1:
+			color = list(single_colors)[0]
+			positive_possibilities.append(ColorCombination(**{color:1}))
+		elif len(single_colors)==2:
+			positive_possibilities += color_combinations(single_colors, 2)
 		else:
-			if len(single_colors)==1:
-				color = list(single_colors)[0]
-				possibilities.append({color:1})
-			elif len(single_colors)==2:
-				possibilities += color_combinations(single_colors, 2)
+			positive_possibilities += color_combinations(single_colors, 3)
+
+		# determines returning requirements
+		if self.n_gems <= 7:
+			return positive_possibilities
+		else:
+			actual_possibilities = self.calculate_gem_returns(positive_possibilities)
+			return actual_possibilities
+
+	def calculate_gem_returns(self, possibilities):
+		# I am using a set to remove duplicates
+		possibility_tuples = set()
+		n_gems = self.n_gems
+		for possibility in possibilities:
+			n = possibility.count()
+			number_to_return = n + n_gems - 10
+			if number_to_return <= 0:
+				possibility_tuples.add(possibility.as_tuple())
 			else:
-				possibilities += color_combinations(single_colors, 3)
-		return possibilities
+				return_combos = [ColorCombination(True, **Counter(x)) for x in combinations((self.gems + possibility).expand(), number_to_return)]
+				net_changes = [possibility-combo for combo in return_combos]
+				for change in net_changes:
+					possibility_tuples.add(change.as_tuple())
+		# convert hashable tuples back to ColorCombination objects
+		return [convert_tuple_to_color_combination(x) for x in possibility_tuples]
+
 
 	def reset(self, reset_extended_history=False):
 		"""
@@ -709,7 +768,7 @@ class Player(object):
 		self.n_cards = 0
 		self.n_reserved_cards = 0
 		self.n_reserved_cards_tiers = [{i:0 for i in range(3)}]
-		self.gems = ColorCombination(**{color:0 for color in COLOR_ORDER})
+		self.gems = ColorCombination(use_gold=True, **{color:0 for color in COLOR_ORDER})
 		self.n_gems = 0
 		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
@@ -882,9 +941,9 @@ class Player(object):
 
 		# retroactively apply Q-scores
 		n_turns = len(self.q_state_history)
-		q1_threshold = n_turns - 1
-		q3_threshold = n_turns - 3
-		q5_threshold = n_turns - 5
+		q1_threshold = n_turns - 2
+		q3_threshold = n_turns - 4
+		q5_threshold = n_turns - 6
 		for i in range(n_turns):
 			data = {}
 			if i <= q1_threshold:
@@ -921,4 +980,4 @@ def color_combinations(colors, n):
 	returns the cost in the form of a dictionary 
 	"""
 	combos = combinations(colors, n)
-	return [ColorCombination({color:1 for color in combo}) for combo in combinations]
+	return [ColorCombination(use_gold=True, **{color:1 for color in combo}) for combo in combos]
