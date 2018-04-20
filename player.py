@@ -5,6 +5,8 @@ from itertools import zip_longest
 from itertools import product
 from collections import Counter
 
+from copy import copy, deepcopy
+
 import numpy as np 
 
 from ai import NETWORK_HYPERPARAMETERS
@@ -85,7 +87,7 @@ def get_phase_parameters(phase):
 		}
 
 class Player(object):
-	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1, record_plain_history=False):
+	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1, record_plain_history=False, hyperparameters=None):
 		self.game = game 
 		# this is important for keeping track of which player has which id
 		self.id = id
@@ -93,7 +95,10 @@ class Player(object):
 		if ai is not None:
 			self.ai = ai
 		else:
-			self.ai = SplendorAI(id=id, game=game)
+			if hyperparameters is not None:
+				self.ai = SplendorAI(id=id, game=game, **hyperparameters)
+			else:
+				self.ai = SplendorAI(id=id, game=game)
 
 		self.points = 0
 		# this should be retrieved via get_phase_parameters()
@@ -189,7 +194,8 @@ class Player(object):
 		based on Boltzmann Distribution
 		"""
 		# at T=1, minimum probability for action is about 1/20,000
-		score = np.maximum(score - np.max(score), -10)
+		score_ = np.maximum(score - np.max(score), -10)
+		score = score_ + -1e100 * (score == -1e100)
 		# condition prevents underflow errors
 		if self.temperature < 0.01:
 			choice = np.argmax(score)
@@ -511,8 +517,15 @@ class Player(object):
 			cards = self.game.available_tier_1_cards
 		elif tier==2:
 			cards = self.game.available_tier_2_cards
-		else:
+		elif tier==3:
 			cards = self.game.available_tier_3_cards
+		elif tier=='all':
+			# only for recordkeeping
+			return {
+			    'tier 1': self.game.available_tier_1_cards,
+			    'tier 2': self.game.available_tier_2_cards,
+			    'tier 3': self.game.available_tier_3_cards
+			}
 		return cards 
 
 	def card_in_position_purchasing_cost(self, tier, position):
@@ -924,11 +937,21 @@ class Player(object):
 		return {
 			'gems': deepcopy(self.gems),
 			'discounts': deepcopy(self.discount),
-			'cards': deepcopy(self.cards),
+			'cards': deepcopy(self.owned_cards),
+			'n_cards': len(self.owned_cards),
 			'objectives': deepcopy(self.objectives),
 			'reserved_cards': deepcopy(self.reserved_cards),
 			'points': copy(self.points),
-			'order': self.order 
+			'order': self.order,
+			'id': self.id,
+			'n_reserved_cards': self.n_reserved_cards,
+			'n_reserved_cards_tiers': self.n_reserved_cards_tiers,
+			'win': self.win,
+			'decision_weights': {
+				'temperature': self.temperature,
+				'decision_weighting': deepcopy(self.decision_weighting),
+			},
+			'n_gems': self.n_gems,
 		}
 
 	def record_q_state(self):
@@ -966,14 +989,14 @@ class Player(object):
 			self.lagged_q_state_history.append(data)
 
 		# write extended history
-		self.extended_serialized_action_history.extend(self.serialized_action_history)
+		self.extended_serialized_action_history.extend(deepcopy(self.serialized_action_history))
 
-		self.extended_lagged_q_state_history.extend(self.lagged_q_state_history)
+		self.extended_lagged_q_state_history.extend(deepcopy(self.lagged_q_state_history))
 
 		# write plain history if applicable
 		if self.record_plain_history:
 			# this needs to be exported elsewhere in order to be useful for anything
-			self.extended_plain_action_history.extend(self.plain_action_history)
+			self.extended_plain_action_history.extend(deepcopy(self.plain_action_history))
 
 	def transfer_history_to_ai(self):
 		self.ai.load_extended_history_from_player(self)

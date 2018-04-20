@@ -28,7 +28,7 @@ class Game(object):
 
 	"""
 	def __init__(self, id, n_players=4, players=None, shuffle_players=True, record_plain_history=False,
-		decision_weighting=default_decision_weighting, temperature=1):
+		decision_weighting=default_decision_weighting, temperature=1, hyperparameters=None):
 		"""
 		id is used for recordkeeping, ideally a counter
 		n_players is the number of players in the game; if players are provided already, then this will revert to their length
@@ -45,14 +45,14 @@ class Game(object):
 		self.round=-1
 		if players is not None:
 			self.n_players = len(players)
-			self.players=players 
+			self.players= list(players) # this will prevent shuffling from changing passed parameter
 			if shuffle_players:
 				self.shuffle_players()
 		else:
 			self.n_players = n_players
 			self.players = [
 			Player(game=self, id=i, order=i, record_plain_history=record_plain_history,
-				decision_weighting=decision_weighting, temperature=temperature) 
+				decision_weighting=decision_weighting, temperature=temperature, hyperparameters=hyperparameters) 
 			for i in range(n_players)]
 		self.turn = -1
 
@@ -73,6 +73,8 @@ class Game(object):
 
 	#TODO: add methods to append 
 	def run(self):
+		# should be a rare condition
+		no_winner = False
 		while not self.last_turn:
 			self.round+=1
 			for i, player in enumerate(self.players):
@@ -84,13 +86,20 @@ class Game(object):
 					game_data = self.copy_plain_data(player_order=i)
 					player_data = [a_player.copy_plain_data() for a_player in self.players]
 					self.plain_history.append(player_data)
+			if self.round > 300:
+				no_winner = True
+				print("ERROR WITH NUMBER OF ROUNDS")
+				break
 
-		self.assign_winner()
-		for player in self.players:
-			# allows Q1, Q3, and Q5 to be applied as if a new turn's stats were recorded
-			player.record_q_state()
-			# transfers history to extended history, which can be passed to an AI to train
-			player.record_extended_history()
+		if not no_winner:
+			self.assign_winner()
+			for player in self.players:
+				# allows Q1, Q3, and Q5 to be applied as if a new turn's stats were recorded
+				player.record_q_state()
+				# transfers history to extended history, which can be passed to an AI to train
+				player.record_extended_history()
+
+		return no_winner
 
 	def shuffle_players(self):
 		"""
@@ -139,8 +148,16 @@ class Game(object):
 			return self.available_tier_1_cards
 		elif tier==2:
 			return self.available_tier_2_cards
-		else:
+		elif tier==3:
 			return self.available_tier_3_cards
+		elif tier=='all':
+			# only for recordkeeping purposes
+			return {
+			    'tier 1': self.available_tier_1_cards,
+			    'tier 2': self.available_tier_2_cards,
+			    'tier 3': self.available_tier_3_cards
+			}
+
 
 	def assign_winner(self):
 		"""
@@ -251,15 +268,24 @@ class Game(object):
 		
 	def copy_plain_data(self, player_order=None):
 		return {
-			'available_cards': deepcopy(self.available_cards),
+			'available_cards': deepcopy(self.get_available_cards('all')),
 			'gems': deepcopy(self.gems),
 			'objectives': deepcopy(self.objectives),
+			'n_objectives': len(self.objectives),
 			'turn': deepcopy(self.turn),
 			'player_order': player_order,
 			'round': self.round,
 			'id': self.id 
 		}
 
+	def copy_plain_data_for_self_and_players(self, player_order=None):
+		return {
+			'game': self.copy_plain_data(player_order=player_order),
+			'players': {
+				data['id']:data 
+				for data in [player.copy_plain_data() for player in self.players]
+			}
+		}
 
 
 	def save_state(self):
