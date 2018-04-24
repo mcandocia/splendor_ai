@@ -10,6 +10,13 @@ from copy import copy, deepcopy
 from itertools import chain
 import os
 
+# tips for reducing memory usage:
+# https://github.com/keras-team/keras/issues/1538
+# config = tf.configProto
+# 	gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.09),
+# 	device_count = {'GPU':1}
+# )
+
 NETWORK_DIRECTORY = 'keras_networks'
 os.makedirs(NETWORK_DIRECTORY, exist_ok=True)
 
@@ -62,7 +69,7 @@ NETWORK_HYPERPARAMETERS = {
 }
 
 class SplendorAI(object):
-	def __init__(self, id, game, load_params=None, **hyperparameters):
+	def __init__(self, id, game, load_params=None, verbose=False, **hyperparameters):
 		"""
 		TODO: generate a keras network that will be used to make predictions for players using this AI
 		if the 
@@ -88,6 +95,7 @@ class SplendorAI(object):
 			lchain(self.reserved_inputs) + # 12
 			lchain(self.game_cards_inputs) # 12
 		)
+		self.verbose=verbose
 
 		if load_params is not None:
 			model_index = load_params.get('index', 0)
@@ -270,7 +278,7 @@ class SplendorAI(object):
 
 		return({'win_prediction': win_prediction, 'q_predictions': q_predictions})
 
-	def save_models(self, main_name,  index=0):
+	def save_models(self, main_name,  index=0, verbose=False):
 		"""
 		saves the neural network configuration to a file
 		"""
@@ -288,10 +296,11 @@ class SplendorAI(object):
 				model_name=model_name,
 				index=index
 			)
-			print('saving {filename}'.format(filename=filename))
+			if verbose or self.verbose:
+				print('saving {filename}'.format(filename=filename))
 			model.save(os.path.join(NETWORK_DIRECTORY, filename))
 
-	def load_models(self, main_name, index=0):
+	def load_models(self, main_name, index=0, verbose=False):
 		"""
 		loads model from file
 		"""
@@ -303,7 +312,8 @@ class SplendorAI(object):
 				model_name=model_name,
 				index=index
 			)
-			print('loading {filename}'.format(filename=filename))
+			if verbose or self.verbose:
+				print('loading {filename}'.format(filename=filename))
 			model = load_model(os.path.join(NETWORK_DIRECTORY, filename))
 			if model_name == 'win':
 				self.win_model = model
@@ -316,7 +326,8 @@ class SplendorAI(object):
 
 	def train_models(self, n_epochs=10, batch_size=1000, verbose=0):
 		for model_name in ['win', 'Q1', 'Q3', 'Q5']:
-			print('training %s model' % model_name)
+			if verbose != 0:
+				print('training %s model' % model_name)
 			x, y = self.prepare_data(model_name)
 			if model_name == 'win':
 				model = self.win_model

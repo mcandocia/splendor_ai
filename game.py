@@ -7,6 +7,8 @@ from copy import copy, deepcopy
 from random import shuffle
 from itertools import chain
 
+from datetime import datetime
+
 import numpy as np
 
 def gem_reduction(n_players):
@@ -37,6 +39,9 @@ class Game(object):
 			the program a lot slower, so use it only when debugging or when extracting simulation information for insights
 		"""
 		self.id = id 
+		self.creation_time = datetime.now()
+		self.start_time = None
+		self.end_time = None 
 		self.record_plain_history = record_plain_history
 		if self.record_plain_history:
 			self.plain_history = []
@@ -75,6 +80,7 @@ class Game(object):
 	def run(self):
 		# should be a rare condition
 		no_winner = False
+		self.start_time = datetime.now()
 		while not self.last_turn:
 			self.round+=1
 			for i, player in enumerate(self.players):
@@ -99,6 +105,7 @@ class Game(object):
 				# transfers history to extended history, which can be passed to an AI to train
 				player.record_extended_history()
 
+		self.end_time = datetime.now()
 		return no_winner
 
 	def shuffle_players(self):
@@ -273,9 +280,12 @@ class Game(object):
 			'objectives': deepcopy(self.objectives),
 			'n_objectives': len(self.objectives),
 			'turn': deepcopy(self.turn),
-			'player_order': player_order,
+			'player_order': deepcopy(player_order),
 			'round': self.round,
-			'id': self.id 
+			'id': self.id,
+			'start_time': copy(self.start_time),
+			'creation_time': copy(self.creation_time),
+			'end_time': copy(self.end_time),
 		}
 
 	def copy_plain_data_for_self_and_players(self, player_order=None):
@@ -286,14 +296,3 @@ class Game(object):
 				for data in [player.copy_plain_data() for player in self.players]
 			}
 		}
-
-
-	def save_state(self):
-		"""
-		to be used in conjunction with save_state() from players to save a state and then undo it as necessary
-		"""
-
-	def load_state(self):
-		"""
-		to revert to previous state stored by self.save_state()
-		"""

@@ -123,6 +123,8 @@ class Player(object):
 		self.n_gems = 0
 		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
+		self.total_times_reserved = Counter()
+		self.total_gem_takes = Counter()
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
 
@@ -263,10 +265,14 @@ class Player(object):
 		elif action=='reserve':
 			which_reserve = self.make_choice(reserving_scores)
 			serialization = reserving_options['serializations'][which_reserve]
+			reservation_change = reserving_options['actions']['reservation_changes'][which_reserve]
+			# log reservation
+			self.total_times_reserved[(reservation_change['tier'], reservation_change['type'])] += 1
+			
 			return (
 				action, 
 				{
-					'reservation_changes': reserving_options['actions']['reservation_changes'][which_reserve],
+					'reservation_changes': reservation_change,
 					'gem_changes': reserving_options['actions']['gem_changes'][which_reserve],
 				}, 
 				serialization,
@@ -274,10 +280,12 @@ class Player(object):
 		elif action=='take_gems':
 			which_gems = self.make_choice(gem_scores)
 			serialization = gem_taking_options['serializations'][which_gems]
+			gem_changes = gem_taking_options['actions']['gem_changes'][which_gems]
+			self.total_gem_takes[gem_changes.count()]+=1
 			return (
 				action, 
 				{
-					'gem_changes': gem_taking_options['actions']['gem_changes'][which_gems]
+					'gem_changes': gem_changes,
 				}, 
 				serialization
 			)
@@ -786,6 +794,8 @@ class Player(object):
 		self.n_gems = 0
 		self.discount = ColorCombination(**{color:0 for color in COST_COLOR_ORDER})
 		self.objectives = []
+		self.total_times_reserved = Counter()
+		self.total_gem_takes = Counter()
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
 
@@ -942,16 +952,18 @@ class Player(object):
 			'objectives': deepcopy(self.objectives),
 			'reserved_cards': deepcopy(self.reserved_cards),
 			'points': copy(self.points),
-			'order': self.order,
+			'order': copy(self.order),
 			'id': self.id,
 			'n_reserved_cards': self.n_reserved_cards,
-			'n_reserved_cards_tiers': self.n_reserved_cards_tiers,
+			'n_reserved_cards_tiers': deepcopy(self.n_reserved_cards_tiers),
 			'win': self.win,
 			'decision_weights': {
 				'temperature': self.temperature,
 				'decision_weighting': deepcopy(self.decision_weighting),
 			},
 			'n_gems': self.n_gems,
+			'total_times_reserved': deepcopy(self.total_times_reserved),
+			'total_gems_taken': deepcopy(self.total_gem_takes),
 		}
 
 	def record_q_state(self):
