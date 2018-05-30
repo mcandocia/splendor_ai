@@ -175,8 +175,8 @@ class Game(object):
 		highest_scoring_players = [player for player in self.players if player.points==max_score]
 
 		# nobles secondary objective
-		max_objectives = max([len(player.objectives) for player in highest_scoring_players])
-		highest_scoring_players = [player for player in highest_scoring_players if len(player.objectives)==max_objectives]
+		# max_objectives = max([len(player.objectives) for player in highest_scoring_players])
+		# highest_scoring_players = [player for player in highest_scoring_players if len(player.objectives)==max_objectives]
 
 		# efficiency tertiary objective
 		lowest_number_of_cards = min([player.n_cards for player in highest_scoring_players])
