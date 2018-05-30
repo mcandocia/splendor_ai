@@ -30,9 +30,9 @@ class ColorCombination(object):
 
 	def __add__(self, c2):
 		colors = {}
-		for color in self.possible_colors:
+		for color in COLOR_ORDER:
 			# 0 should only be in the case of gold when discounts and gems are added
-			colors[color] = getattr(self, color) + getattr(c2, color, 0)
+			colors[color] = getattr(self, color, 0) + getattr(c2, color, 0)
 
 		return ColorCombination(self.uses_gold or c2.uses_gold, **colors)
 

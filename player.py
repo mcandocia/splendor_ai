@@ -12,7 +12,7 @@ import numpy as np
 from ai import NETWORK_HYPERPARAMETERS
 from ai import SplendorAI
 
-q_loadings = NETWORK_HYPERPARAMETERS['output_layers']
+Q_LOADINGS = NETWORK_HYPERPARAMETERS['output_layers']
 
 """
 uncommon strategies not supported:
@@ -87,7 +87,28 @@ def get_phase_parameters(phase):
 		}
 
 class Player(object):
-	def __init__(self, game, id, order, ai=None, decision_weighting=None, temperature=1, record_plain_history=False, hyperparameters=None):
+	def __init__(
+		self, 
+		game, 
+		id, 
+		order, 
+		ai=None, 
+		decision_weighting=None, 
+		temperature=1, 
+		record_plain_history=False, 
+		hyperparameters=None,
+		compares_self_to_others=False,
+	):
+		"""
+		game - a Game object that this player is attached to
+		id - a unique ID for the player
+		ai - a premade SplendorAI object (optional; one is made if not provided)
+		decision_weighting - the weights used for each of the player's outputs for decisions
+		temperature - the randomness of the player's decisions
+		record_plain_history - if true, records JSON of the game state at each turn (uses a lot of extra memory)
+		hyperparameters - network hyperparameters for neural network; see ai.py for default parameters
+		compares_self_to_others - if True, the Q-scores will look at the player's lead rather than raw score for optimization
+		"""
 		self.game = game 
 		# this is important for keeping track of which player has which id
 		self.id = id
@@ -127,6 +148,8 @@ class Player(object):
 		self.total_gem_takes = Counter()
 		self.win = False
 		#self.draw = False#will allow multiple victories in rare instances
+
+		self.compares_self_to_others = compares_self_to_others
 
 		## describes the history for the current game
 		# this should have a dict of basic game information
@@ -759,6 +782,7 @@ class Player(object):
 
 	def calculate_gem_returns(self, possibilities):
 		# I am using a set to remove duplicates
+		# TODO: find a bug here
 		possibility_tuples = set()
 		n_gems = self.n_gems
 		for possibility in possibilities:
@@ -899,6 +923,12 @@ class Player(object):
 
 
 	def full_serializations(self, gem_changes=None, card_changes=None, reservation_changes=None):
+		"""
+		returns a list of dictionaries of the serializations that are used to describe the game state
+
+		these serializations are numpy arrays
+
+		"""
 		# first get serializations of other players, since those are static
 		other_player_serializations = [
 			player.serialize(from_own_perspective=False)
@@ -966,12 +996,34 @@ class Player(object):
 			'total_gems_taken': deepcopy(self.total_gem_takes),
 		}
 
-	def record_q_state(self):
-
+	def make_q_state(self):
+		"""
+		convenience function so other players can calculate this to compare themselves
+		"""
 		q_state = {
 			v['name']: v['score'] * self.points + v['discount'] * self.discount.count() + v['gems'] * self.gems.count()
-			for v in q_loadings
+			for v in Q_LOADINGS
 		}
+		return q_state
+
+	def record_q_state(self):
+		"""
+		records how good a player is doing in terms of score w/decision weights
+		"""
+		q_state = {
+			v['name']: v['score'] * self.points + v['discount'] * self.discount.count() + v['gems'] * self.gems.count()
+			for v in Q_LOADINGS
+		}
+
+		# if True, measures the *lead* instead of raw score; this makes the AI incompatible with AI not using this
+		# even though it will still technically run
+		if self.compares_self_to_others:
+			other_q_states = [player.make_q_state() for player in self.other_players]
+			q_state = {
+				q_state[v['name']] - max([state[v['name']] for state in other_q_states])
+				for v in Q_LOADINGS
+			}
+
 		self.q_state_history.append(q_state)
 
 
