@@ -30,13 +30,14 @@ class Game(object):
 
 	"""
 	def __init__(self, id, n_players=4, players=None, shuffle_players=True, record_plain_history=False,
-		decision_weighting=default_decision_weighting, temperature=1, hyperparameters=None):
+		decision_weighting=default_decision_weighting, temperature=1, hyperparameters=None, players_compare_self_to_others=False):
 		"""
 		id is used for recordkeeping, ideally a counter
 		n_players is the number of players in the game; if players are provided already, then this will revert to their length
 		shuffle_players will shuffle the player order; recommended
 		record_plain_history will record easier-to-understand data for each turn; this increases memory usage dramatically and makes 
 			the program a lot slower, so use it only when debugging or when extracting simulation information for insights
+		players_compare_self_to_others - if True, the Q-scores will look at the player's lead rather than raw score for optimization
 		"""
 		self.id = id 
 		self.creation_time = datetime.now()
@@ -57,7 +58,8 @@ class Game(object):
 			self.n_players = n_players
 			self.players = [
 			Player(game=self, id=i, order=i, record_plain_history=record_plain_history,
-				decision_weighting=decision_weighting, temperature=temperature, hyperparameters=hyperparameters) 
+				decision_weighting=decision_weighting, temperature=temperature, hyperparameters=hyperparameters,
+				compares_self_to_others=players_compare_self_to_others) 
 			for i in range(n_players)]
 		self.turn = -1
 
