@@ -222,7 +222,7 @@ class Player(object):
 		score_ = np.maximum(score - np.max(score), -10)
 		score = score_ + -1e100 * (score == -1e100)
 		# condition prevents underflow errors
-		if self.temperature < 0.01:
+		if self.temperature < 0.005:
 			choice = np.argmax(score)
 		else:
 			score = np.exp(score/self.temperature)
@@ -265,9 +265,9 @@ class Player(object):
 			gem_scores = gem_taking_options['score'] # [option['score'] for option in gem_taking_options]
 			gem_taking_weight = np.max(gem_scores)
 
-		if purchasing_weight + reserving_weight + gem_taking_weight==0:
+		if all([x is None for x in [purchasing_options, reserving_options, gem_taking_options]]):
 			print("WARNING: NO ACTIONS CAN BE TAKEN!")
-			return None
+			return None, None, self.full_serializations(None, None, None)[0]
 
 		action = ['purchase','reserve','take_gems'][self.make_choice(
 			np.asarray([purchasing_weight, reserving_weight, gem_taking_weight])
@@ -866,7 +866,7 @@ class Player(object):
 
 		# hypothetical reservation
 		if reservation_change is not None:
-			tier = card_reservation['tier']
+			tier = reservation_change['tier']
 			if reservation_change['type'] == 'topdeck':
 				reserved_card_serializations.append(
 					serialize_card(make_blank_card(tier=tier))
@@ -943,12 +943,16 @@ class Player(object):
 			wrap_if_not_list(card_changes), 
 			wrap_if_not_list(reservation_changes)):
 
-			self_serializations.append(self.serialize(gem_change=gem_change, card_change=card_change))
+			self_serializations.append(self.serialize(
+				gem_change=gem_change, 
+				card_change=card_change,
+				reservation_change=reservation_change
+			))
 
 			game_serializations.append(
 				self.game.serialize(
 					gem_change=gem_change, 
-					available_card_change=None, 
+					available_card_change=card_change, # None, # possibly major debug here
 					reservation_change=reservation_change
 				)
 			)
