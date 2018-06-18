@@ -1029,7 +1029,7 @@ class Player(object):
 				v['name']:q_state[v['name']] - max([state[v['name']] for state in other_q_states])
 				for v in Q_LOADINGS
 			}
-		elif self.compare_self_to_others='both':
+		elif self.compare_self_to_others=='both':
 			other_q_states = [player.make_q_state() for player in self.other_players]
 			q_state = {
 				v['name']:(q_state[v['name']]*2 - max([state[v['name']] for state in other_q_states]))/2
