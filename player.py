@@ -97,7 +97,7 @@ class Player(object):
 		temperature=1, 
 		record_plain_history=False, 
 		hyperparameters=None,
-		compares_self_to_others=False,
+		compares_self_to_others=['no','yes','both'],
 	):
 		"""
 		game - a Game object that this player is attached to
@@ -107,8 +107,10 @@ class Player(object):
 		temperature - the randomness of the player's decisions
 		record_plain_history - if true, records JSON of the game state at each turn (uses a lot of extra memory)
 		hyperparameters - network hyperparameters for neural network; see ai.py for default parameters
-		compares_self_to_others - if True, the Q-scores will look at the player's lead rather than raw score for optimization
+		compares_self_to_others - 'no', 'yes', or 'both'; will weight score by lead if 'yes'; will take average of score and lead if 'both'
 		"""
+		if isinstance(compares_self_to_others, list):
+			compares_self_to_others = compares_self_to_others[0]
 		self.game = game 
 		# this is important for keeping track of which player has which id
 		self.id = id
@@ -1021,10 +1023,16 @@ class Player(object):
 
 		# if True, measures the *lead* instead of raw score; this makes the AI incompatible with AI not using this
 		# even though it will still technically run
-		if self.compares_self_to_others:
+		if self.compares_self_to_others=='yes':
 			other_q_states = [player.make_q_state() for player in self.other_players]
 			q_state = {
 				v['name']:q_state[v['name']] - max([state[v['name']] for state in other_q_states])
+				for v in Q_LOADINGS
+			}
+		elif self.compare_self_to_others='both':
+			other_q_states = [player.make_q_state() for player in self.other_players]
+			q_state = {
+				v['name']:(q_state[v['name']]*2 - max([state[v['name']] for state in other_q_states]))/2
 				for v in Q_LOADINGS
 			}
 
